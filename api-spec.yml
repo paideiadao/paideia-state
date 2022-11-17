@@ -1,0 +1,736 @@
+openapi: 3.0.3
+info:
+  title: Paideia-State
+  version: 0.1.0
+servers:
+  - url: http://testserver1.com
+tags:
+  - name: dao
+  - name: staking
+  - name: vote
+  - name: proposal
+paths:
+  /dao:
+    post:
+      tags:
+        - dao
+      operationId: createDAO
+      summary: Build a transaction to create a new DAO
+      description: Build a transaction to create a new DAO by supplying the address of the user and the selected options
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userRequest:
+                  $ref: "#/components/schemas/userRequest"
+                dao:
+                  $ref: "#/components/schemas/daoBase"
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/unsignedTransaction"
+  /dao/list:
+    get:
+      tags:
+        - dao
+      operationId: listDAOs
+      summary: List all DAO's known to the current state
+      description: List all DAO's known to the current state and show their configuration
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/dao"
+  /dao/{daoId}:
+    get:
+      tags:
+        - dao
+      operationId: getDAO
+      parameters:
+        - name: daoId
+          in: path
+          description: ID of dao to return
+          required: true
+          schema:
+            type: string
+            minLength: 64
+            maxLength: 64
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/dao"
+  /dao/{daoId}/staking/status:
+    get:
+      tags:
+        - staking
+      operationId: stakingStatus
+      parameters:
+        - name: daoId
+          in: path
+          description: ID of dao to return
+          required: true
+          schema:
+            type: string
+            minLength: 64
+            maxLength: 64
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/stakingStatus"
+  /dao/{daoId}/staking:
+    post:
+      tags:
+        - staking
+      operationId: stakingCreateStake
+      parameters:
+        - name: daoId
+          in: path
+          description: ID of dao to return
+          required: true
+          schema:
+            type: string
+            minLength: 64
+            maxLength: 64
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userRequest:
+                  $ref: "#/components/schemas/userRequest"
+                stake:
+                  $ref: "#/components/schemas/stakeBase"
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/unsignedTransaction"
+  /dao/{daoId}/staking/{stakeKey}:
+    get:
+      tags:
+        - staking
+      operationId: stakingCurrentStake
+      parameters:
+        - name: daoId
+          in: path
+          description: ID of dao to return
+          required: true
+          schema:
+            type: string
+            minLength: 64
+            maxLength: 64
+        - name: stakeKey
+          in: path
+          description: Token Id of the users' stake/vote key
+          required: true
+          schema:
+            type: string
+            minLength: 64
+            maxLength: 64
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/stake"
+    put:
+      tags:
+        - staking
+      operationId: stakingChangeStake
+      parameters:
+        - name: daoId
+          in: path
+          description: ID of dao to return
+          required: true
+          schema:
+            type: string
+            minLength: 64
+            maxLength: 64
+        - name: stakeKey
+          in: path
+          description: Token Id of the users' stake/vote key
+          required: true
+          schema:
+            type: string
+            minLength: 64
+            maxLength: 64
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userRequest:
+                  $ref: "#/components/schemas/userRequest"
+                stake:
+                  $ref: "#/components/schemas/stake"
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/unsignedTransaction"
+  /staking/list:
+    post:
+      tags:
+        - staking
+      operationId: stakingList
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: string
+                minLength: 64
+                maxLength: 64
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/stake"
+  /dao/{daoId}/vote:
+    post:
+      tags:
+        - vote
+      operationId: createVoteBox
+      parameters:
+        - name: daoId
+          in: path
+          description: ID of dao to return
+          required: true
+          schema:
+            type: string
+            minLength: 64
+            maxLength: 64
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userRequest:
+                  $ref: "#/components/schemas/userRequest"
+                vote:
+                  $ref: "#/components/schemas/voteBoxBase"
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/unsignedTransaction"
+  /dao/{daoId}/vote/delete:
+    post:
+      tags:
+        - vote
+      operationId: deleteVoteBox
+      parameters:
+        - name: daoId
+          in: path
+          description: ID of dao to return
+          required: true
+          schema:
+            type: string
+            minLength: 64
+            maxLength: 64
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userRequest:
+                  $ref: "#/components/schemas/userRequest"
+                vote:
+                  $ref: "#/components/schemas/voteBox"
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/unsignedTransaction"
+  /dao/{daoId}/proposal:
+    post:
+      tags:
+        - proposal
+      operationId: createProposal
+      parameters:
+        - name: daoId
+          in: path
+          description: ID of dao to return
+          required: true
+          schema:
+            type: string
+            minLength: 64
+            maxLength: 64
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userRequest:
+                  $ref: "#/components/schemas/userRequest"
+                vote:
+                  $ref: "#/components/schemas/proposalBase"
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/unsignedTransaction"
+  /dao/{daoId}/proposal/list:
+    get:
+      tags:
+        - proposal
+      operationId: listProposals
+      parameters:
+        - name: daoId
+          in: path
+          description: ID of dao to return
+          required: true
+          schema:
+            type: string
+            minLength: 64
+            maxLength: 64
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/proposal"
+  /dao/{daoId}/proposal/{proposalId}:
+    get:
+      tags:
+        - proposal
+      operationId: getProposal
+      parameters:
+        - name: daoId
+          in: path
+          description: ID of dao to return
+          required: true
+          schema:
+            type: string
+            minLength: 64
+            maxLength: 64
+        - name: proposalId
+          in: path
+          description: ID of proposal to fetch
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/proposal"
+  /dao/{daoId}/proposal/vote:
+    post:
+      tags:
+        - proposal
+      operationId: voteProposal
+      parameters:
+        - name: daoId
+          in: path
+          description: ID of dao to return
+          required: true
+          schema:
+            type: string
+            minLength: 64
+            maxLength: 64
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userRequest:
+                  $ref: "#/components/schemas/userRequest"
+                vote:
+                  $ref: "#/components/schemas/vote"
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/unsignedTransaction"
+  /dao/{daoId}/votes:
+    post:
+      tags:
+        - vote
+      operationId: getVotes
+      parameters:
+        - name: daoId
+          in: path
+          description: ID of dao to return
+          required: true
+          schema:
+            type: string
+            minLength: 64
+            maxLength: 64
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: string
+                minLength: 64
+                maxLength: 64
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/vote"
+components:
+  schemas:
+    vote:
+      type: object
+      properties:
+        voteKey:
+          type: string
+          minLength: 64
+          maxLength: 64
+        proposalId:
+          type: integer
+        votes:
+          type: array
+          items:
+            type: integer
+    proposalBase:
+      type: object
+      properties:
+        proposalType:
+          type: string
+          enum:
+            - basic
+            - quatitative
+        actions:
+          type: array
+          items:
+            type: array
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/action"
+    proposal:
+      allOf:
+        - $ref: "#/components/schemas/proposalBase"
+        - type: object
+          properties:
+            proposalIndex:
+              type: integer
+            passed:
+              type: string
+              enum:
+                - pending
+                - failed
+                - passed
+            endTime:
+              type: integer
+            votes:
+              type: object
+              properties:
+                total:
+                  type: integer
+                currentTally:
+                  type: array
+                  items:
+                    type: integer
+    configValue:
+      type: object
+      properties:
+        key:
+          type: string
+        value:
+          type: string
+        valueType:
+          type: string
+          enum:
+            - long
+            - string
+            - boolean
+            - contractSignature
+            - custom
+    actionChangeConfig:
+      type: object
+      properties:
+        actionType:
+          type: string
+          enum:
+            - actionChangeConfig
+        changedConfigValues:
+          type: array
+          items:
+            $ref: "#/components/schemas/configValue"
+    actionSendFunds:
+      type: object
+      properties:
+        actionType:
+          type: string
+          enum:
+            - actionSendFunds
+        outputRequests:
+          type: array
+          items:
+            $ref: "#/components/schemas/outputBox"
+    action:
+      oneOf:
+        - $ref: "#/components/schemas/actionChangeConfig"
+        - $ref: "#/components/schemas/actionSendFunds"
+    userRequest:
+      type: object
+      properties:
+        txType:
+          type: string
+          enum:
+            - eip12
+            - reduced
+        userAddresses:
+          type: array
+          items:
+            $ref: "#/components/schemas/address"
+    voteBoxBase:
+      type: object
+      properties:
+        stakeKey:
+          type: string
+          minLength: 64
+          maxLength: 64
+    voteBox:
+      allOf:
+        - $ref: "#/components/schemas/voteBoxBase"
+        - type: object
+          properties:
+            voteKey:
+              type: string
+              minLength: 64
+              maxLength: 64
+    address:
+      type: string
+      example: 9h7L7sUHZk43VQC3PHtSp5ujAWcZtYmWATBH746wi75C5XHi68b
+    stakeBase:
+      type: object
+      properties:
+        staked:
+          type: integer
+    stake:
+      allOf:
+        - type: object
+          properties:
+            stakeKey:
+              type: string
+            voteKey:
+              type: string
+            profit:
+              type: array
+              items:
+                $ref: "#/components/schemas/tokenAmount"
+        - $ref: "#/components/schemas/stakeBase"
+    stakingStatus:
+      type: object
+      properties:
+        stakerCount:
+          type: integer
+        totalStaked:
+          type: integer
+        currentStakePoolSize:
+          type: integer
+        nextCycle:
+          type: integer
+        stakingConfig:
+          $ref: "#/components/schemas/stakingConfig"
+        profit:
+          type: array
+          items:
+            $ref: "#/components/schemas/tokenAmount"
+    unsignedTransaction:
+      oneOf:
+        - type: object
+          properties:
+            inputs:
+              type: array
+              items:
+                $ref: "#/components/schemas/unsignedInput"
+            dataInputs:
+              type: array
+              items:
+                $ref: "#/components/schemas/dataInput"
+            outputs:
+              type: array
+              items:
+                $ref: "#/components/schemas/outputBox"
+        - type: object
+          properties:
+            transaction:
+              type: string
+    unsignedInput:
+      allOf:
+        - type: object
+          properties:
+            extension:
+              $ref: "#/components/schemas/contextExtension"
+            transactionId:
+              type: string
+              minLength: 64
+              maxLength: 64
+            index:
+              type: integer
+    dataInput:
+      type: object
+      properties:
+        boxId:
+          type: string
+          minLength: 64
+          maxLength: 64
+    contextExtension:
+      oneOf:
+        - type: object
+        - type: object
+          properties:
+            values:
+              type: object
+              additionalProperties:
+                type: string
+    additionalRegisters:
+      type: object
+      additionalProperties:
+        type: string
+      example:
+        R4: "0e349568322134"
+    tokenAmount:
+      type: object
+      properties:
+        tokenId:
+          type: string
+          minLength: 64
+          maxLength: 64
+        amount:
+          type: integer
+          minimum: 1
+    outputBox:
+      type: object
+      properties:
+        value:
+          type: integer
+          minimum: 1
+        ergoTree:
+          type: string
+        assets:
+          type: array
+          items:
+            $ref: "#/components/schemas/tokenAmount"
+        additionalRegisters:
+          $ref: "#/components/schemas/additionalRegisters"
+        creationHeight:
+          type: integer
+          minimum: 0
+    daoBase:
+      type: object
+      properties:
+        name:
+          type: string
+          example: "My first DAO"
+        governanceTokenId:
+          type: string
+          minLength: 64
+          maxLength: 64
+          example: c63f9ee12e4cbd7489c7637208fc5bcf39074d49a3097490a100eac5a30c6ca0
+        governanceType:
+          type: string
+          example: basic
+          enum:
+            - basic
+            - optimistic
+        supportedProposalTypes:
+          type: array
+          items:
+            type: string
+            enum:
+              - basic
+              - quantitative
+        quorum:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 100
+          multipleOf: 0.1
+          example: 33.3
+        stakingConfig:
+          $ref: "#/components/schemas/stakingConfig"
+    stakingConfig:
+      type: object
+      properties:
+        stakePoolSize:
+          type: integer
+          minimum: 0
+          example: 1000000
+        stakePoolEmission:
+          type: integer
+          minimum: 0
+          example: 1000
+        cycleLength:
+          type: integer
+          minimum: 0
+          description: Stake cycle length in ms
+          example: 604800000
+        rewardDelay:
+          type: integer
+          minimum: 0
+          maximum: 10
+          description: Number of cycles that pass before a stake is rewarded
+          example: 2
+        profitSharePct:
+          type: number
+          format: float
+          multipleOf: 0.1
+          minimum: 0
+          maximum: 100
+          example: 50
+    dao:
+      allOf:
+        - type: object
+          properties:
+            id:
+              type: string
+              minLength: 64
+              maxLength: 64
+              example: 7f55cfa342cf25da85c83a0c3420491f5b4de12ea6ba0cb49247a306fae6e3ff
+        - $ref: "#/components/schemas/daoBase"
