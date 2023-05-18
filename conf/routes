@@ -1,0 +1,20 @@
+# Routes
+# This file defines all application routes (Higher priority routes first)
+# https://www.playframework.com/documentation/latest/ScalaRouting
+# ~~~~
+
+# An example controller showing a sample home page
+POST    /dao/bootstrap              controllers.DAOController.bootstrap
+POST    /dao/                       controllers.DAOController.daoCreate
+GET     /dao                        controllers.DAOController.getAllDAOs
+GET     /dao/:daoKey/config         controllers.DAOController.getDAOConfig(daoKey: String)
+
+POST    /stake                      controllers.StakeController.stake
+GET     /stake/:daoKey/:stakeKey    controllers.StakeController.getStake(daoKey: String, stakeKey: String)
+POST    /stake/add                  controllers.StakeController.addStake
+POST    /stake/remove               controllers.StakeController.unstake
+
+POST    /proposal                   controllers.ProposalController.createProposal
+
+# Map static resources from the /public folder to the /assets URL path
+GET     /assets/*file               controllers.Assets.versioned(path="/public", file: Asset)
