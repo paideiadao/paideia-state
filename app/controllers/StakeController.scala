@@ -38,6 +38,7 @@ import play.api.Logging
 import org.ergoplatform.explorer.client.model
 import util.ChangeBoxFixer
 import im.paideia.staking.StakeRecord
+import org.ergoplatform.appkit.ExplorerAndPoolUnspentBoxesLoader
 
 @Singleton
 class StakeController @Inject() (
@@ -106,6 +107,10 @@ class StakeController @Inject() (
                                     .asJava,
                                   _ctx
                                 )
+                                .withInputBoxesLoader(
+                                  new ExplorerAndPoolUnspentBoxesLoader()
+                                    .withAllowChainedTx(true)
+                                )
                                 .withAmountToSpend(outBox.getValue())
                                 .withTokensToSpend(outBox.getTokens())
                                 .buildTxWithDefaultInputs(tb =>
@@ -170,6 +175,10 @@ class StakeController @Inject() (
                                 .asJava,
                               _ctx
                             )
+                            .withInputBoxesLoader(
+                              new ExplorerAndPoolUnspentBoxesLoader()
+                                .withAllowChainedTx(true)
+                            )
                             .withAmountToSpend(outBox.getValue())
                             .withTokensToSpend(outBox.getTokens())
                             .buildTxWithDefaultInputs(tb =>
@@ -230,6 +239,10 @@ class StakeController @Inject() (
                                 .toList
                                 .asJava,
                               _ctx
+                            )
+                            .withInputBoxesLoader(
+                              new ExplorerAndPoolUnspentBoxesLoader()
+                                .withAllowChainedTx(true)
                             )
                             .withAmountToSpend(outBox.getValue())
                             .withTokensToSpend(outBox.getTokens())

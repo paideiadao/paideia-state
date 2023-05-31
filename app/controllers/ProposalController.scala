@@ -30,13 +30,13 @@ import org.ergoplatform.appkit.InputBoxesSelectionException.NotEnoughTokensExcep
 import org.ergoplatform.appkit.InputBoxesSelectionException.NotEnoughErgsException
 import org.ergoplatform.appkit.InputBoxesSelectionException.NotEnoughCoinsForChangeException
 import models.CreateProposalRequest
-import models.CreateVoteRequest
 import scala.util.Try
 import scala.util.Failure
 import scala.util.Success
 import play.api.Logging
 import org.ergoplatform.appkit.ErgoValue
 import org.ergoplatform.appkit.ErgoToken
+import models.CastVoteRequest
 
 @Singleton
 class ProposalController @Inject() (
@@ -54,6 +54,78 @@ class ProposalController @Inject() (
     "",
     Env.conf.getString("explorer")
   )
+
+  def castVote = Action.async { implicit request: Request[AnyContent] =>
+    val content = request.body
+    val jsonObject = content.asJson
+    val castVoteRequest =
+      Json.fromJson[CastVoteRequest](jsonObject.get)
+
+    castVoteRequest match {
+      case je: JsError => Future(BadRequest(JsError.toJson(je)))
+      case js: JsSuccess[CastVoteRequest] =>
+        val castVote: CastVoteRequest = js.value
+
+        createErgoClient.execute(
+          new java.util.function.Function[BlockchainContext, Future[Result]] {
+            override def apply(_ctx: BlockchainContext): Future[Result] = {
+              (paideiaActor ? CastVoteBox(
+                _ctx.asInstanceOf[BlockchainContextImpl],
+                castVote.daoKey,
+                castVote.stakeKey,
+                castVote.proposalIndex,
+                castVote.votes,
+                castVote.userAddress
+              )).mapTo[Try[OutBox]]
+                .map(outBoxTry =>
+                  outBoxTry match {
+                    case Failure(exception) =>
+                      logger.error(exception.getMessage())
+                      logger.error(exception.getStackTrace().mkString)
+                      BadRequest(exception.getMessage())
+                    case Success(outBox) =>
+                      try {
+                        Ok(
+                          Json.toJson(
+                            MUnsignedTransaction(
+                              BoxOperations
+                                .createForSenders(
+                                  castVote.userAddresses
+                                    .map(addr => Address.create(addr))
+                                    .toList
+                                    .asJava,
+                                  _ctx
+                                )
+                                .withAmountToSpend(outBox.getValue())
+                                .withTokensToSpend(outBox.getTokens())
+                                .buildTxWithDefaultInputs(tb =>
+                                  tb.addOutputs(outBox)
+                                )
+                            )
+                          )
+                        )
+                      } catch {
+                        case nete: NotEnoughTokensException =>
+                          BadRequest(
+                            "The wallet did not contain the tokens required for bootstrapping"
+                          )
+                        case neee: NotEnoughErgsException =>
+                          BadRequest(
+                            "Not enough erg in wallet for bootstrapping"
+                          )
+                        case necfc: NotEnoughCoinsForChangeException =>
+                          BadRequest(
+                            "Not enough erg for change box, try consolidating your utxos to remove this error"
+                          )
+                        case e: Exception => BadRequest(e.getMessage())
+                      }
+                  }
+                )
+            }
+          }
+        )
+    }
+  }
 
   def createProposal = Action.async { implicit request: Request[AnyContent] =>
     val content = request.body
@@ -87,6 +159,14 @@ class ProposalController @Inject() (
                         sfao.registers.map(ErgoValue.fromHex(_))
                       )
                     )
+                  )
+                ) ++ createProposal.updateConfigActions.map(uca =>
+                  UpdateConfigAction(
+                    uca.optionId,
+                    uca.activationTime,
+                    uca.remove,
+                    uca.update,
+                    uca.insert
                   )
                 ),
                 createProposal.voteKey,

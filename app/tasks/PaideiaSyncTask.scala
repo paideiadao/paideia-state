@@ -41,6 +41,11 @@ import scala.collection.JavaConverters._
 import im.paideia.staking.contracts.AddStakeProxy
 import im.paideia.staking.transactions.EmitTransaction
 import im.paideia.staking.transactions.CompoundTransaction
+import models.MUnsignedTransaction
+import play.api.libs.json.Json
+import org.ergoplatform.appkit.impl.UnsignedTransactionImpl
+import sigmastate.serialization.ValueSerializer
+import scorex.util.encode.Base16
 
 class PaideiaSyncTask @Inject() (
     @Named("paideia-state") paideiaActor: ActorRef,
@@ -138,7 +143,7 @@ class PaideiaSyncTask @Inject() (
                               resp.exceptions
                                 .foreach(e => {
 
-                                  logger.error(e.getMessage())
+                                  logger.error(e.getMessage(), e)
 
                                 })
 
@@ -291,10 +296,6 @@ class PaideiaSyncTask @Inject() (
               )
             )
 
-            logger.info(s"""Add stake proxy boxes: ${AddStakeProxy(
-                PaideiaContractSignature(daoKey = Env.paideiaDaoKey)
-              ).getUtxoSet.size.toString()}""")
-
             var usedInputs = List[ErgoId]()
 
             Await.result(
@@ -303,7 +304,7 @@ class PaideiaSyncTask @Inject() (
                   ctx,
                   ctx
                     .getHeaders()
-                    .get(ctx.getHeaders().size() - 1)
+                    .get(0)
                     .getTimestamp(),
                   currentHeight
                 )
@@ -326,14 +327,26 @@ class PaideiaSyncTask @Inject() (
                                         .getClass()
                                         .getCanonicalName()}"""
                                   )
-                                ctx.sendTransaction(
-                                  ctx
-                                    .newProverBuilder()
-                                    .build()
-                                    .sign(ut.unsigned())
-                                )
-                                usedInputs =
-                                  usedInputs ++ ut.inputs.map(b => b.getId())
+                                try {
+                                  ctx.sendTransaction(
+                                    ctx
+                                      .newProverBuilder()
+                                      .build()
+                                      .sign(ut.unsigned())
+                                  )
+                                  usedInputs =
+                                    usedInputs ++ ut.inputs.map(b => b.getId())
+                                } catch {
+                                  case e: Exception =>
+                                    logger.error(
+                                      Json
+                                        .toJson(
+                                          MUnsignedTransaction(ut.unsigned())
+                                        )
+                                        .toString()
+                                    )
+                                    logger.error(e.getMessage())
+                                }
                             }
                           } catch {
                             case e: Exception => logger.error(e.getMessage(), e)

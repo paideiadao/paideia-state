@@ -27,7 +27,6 @@ import org.ergoplatform.appkit.InputBoxesSelectionException.NotEnoughErgsExcepti
 import org.ergoplatform.appkit.InputBoxesSelectionException.NotEnoughCoinsForChangeException
 import scala.concurrent.Future
 import models.BootstrapRequest
-import models.CreateVoteRequest
 import scala.util.Success
 import scala.util.Try
 import scala.util.Failure
@@ -80,6 +79,23 @@ class DAOController @Inject() (
                       DAOConfigValueDeserializer(cv._2).toString()
                     )
                   )
+                )
+              )
+            case Failure(exception) => BadRequest(exception.getMessage())
+          }
+        )
+  }
+
+  def getDAOTreasury(daoKey: String) = Action.async {
+    implicit request: Request[AnyContent] =>
+      (paideiaActor ? GetDAOTreasury(daoKey))
+        .mapTo[Try[String]]
+        .map(addressTry =>
+          addressTry match {
+            case Success(address) =>
+              Ok(
+                Json.toJson(
+                  address
                 )
               )
             case Failure(exception) => BadRequest(exception.getMessage())

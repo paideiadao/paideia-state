@@ -8,7 +8,8 @@ final case class CreateProposalRequest(
     userAddress: String,
     userAddresses: Array[String],
     endTime: Long,
-    sendFundsActions: Array[CreateSendFundsActionRequest]
+    sendFundsActions: Array[CreateSendFundsActionRequest],
+    updateConfigActions: Array[CreateUpdateConfigActionRequest]
 )
 
 object CreateProposalRequest {

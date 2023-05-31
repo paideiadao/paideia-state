@@ -10,7 +10,7 @@ scalaVersion := "2.12.17"
 libraryDependencies += guice
 libraryDependencies += "org.scalatestplus.play" %% "scalatestplus-play" % "5.0.0" % Test
 
-libraryDependencies += "im.paideia" %% "paideia-sdk" % "0.0.2+116-166790e0-SNAPSHOT"
+libraryDependencies += "im.paideia" %% "paideia-sdk" % "0.0.2+144-28e16b72-SNAPSHOT"
 
 dependencyOverrides += "org.scala-lang.modules" %% "scala-parser-combinators" % "1.1.2"
 
@@ -19,7 +19,7 @@ libraryDependencies ++= Seq(
   "ch.qos.logback" % "logback-classic" % "1.2.3"
 )
 
-dependencyOverrides += "org.ergoplatform" %% "ergo-appkit" % "5.0.0"
+dependencyOverrides += "org.ergoplatform" %% "ergo-appkit" % "5.0.1"
 
 resolvers ++= Seq(
   "Sonatype Releases" at "https://oss.sonatype.org/content/repositories/releases/",
