@@ -55,7 +55,7 @@ class DAOController @Inject() (
 
   def getAllDAOs = Action.async { implicit request: Request[AnyContent] =>
     (paideiaActor ? GetAllDAOs())
-      .mapTo[Try[HashMap[String, String]]]
+      .mapTo[Try[HashMap[String, (String, Int)]]]
       .map(daoMapTry =>
         daoMapTry match {
           case Success(daoMap)    => Ok(Json.toJson(daoMap))
@@ -76,7 +76,10 @@ class DAOController @Inject() (
                   configMap.map(cv =>
                     (
                       cv._1,
-                      DAOConfigValueDeserializer(cv._2).toString()
+                      DAOConfigValueDeserializer.deserialize(cv._2) match {
+                        case a: Array[_] => a.map("%02x" format _).mkString
+                        case _ => DAOConfigValueDeserializer(cv._2).toString()
+                      }
                     )
                   )
                 )
