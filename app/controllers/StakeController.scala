@@ -49,7 +49,6 @@ class StakeController @Inject() (
     with Logging {
 
   implicit val timeout: Timeout = 5.seconds
-  implicit val stakeRecordJson = Json.format[StakeRecord]
 
   def createErgoClient = RestApiErgoClient.create(
     Env.conf.getString("node"),
@@ -61,7 +60,7 @@ class StakeController @Inject() (
   def getStake(daoKey: String, stakeKey: String) = Action.async {
     implicit request: Request[AnyContent] =>
       (paideiaActor ? GetStake(daoKey, stakeKey))
-        .mapTo[Try[StakeRecord]]
+        .mapTo[Try[StakeInfo]]
         .map(stakeRecordTry =>
           stakeRecordTry match {
             case Success(stakeRecord) => Ok(Json.toJson(stakeRecord))

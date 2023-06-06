@@ -50,6 +50,8 @@ import im.paideia.governance.VoteRecord
 import im.paideia.staking.boxes.StakeStateBox
 import im.paideia.DAOConfigValueSerializer
 import play.api.libs.json.Json
+import im.paideia.staking.ParticipationRecord
+import special.collection.Coll
 
 object PaideiaStateActor {
   def props = Props[PaideiaStateActor]
@@ -169,6 +171,18 @@ object PaideiaStateActor {
       votes: Array[Long],
       userAddress: String
   )
+
+  case class StakeInfo(
+      stakeRecord: StakeRecord,
+      participationRecord: Option[ParticipationRecord],
+      profitTokens: List[String]
+  )
+
+  object StakeInfo {
+    implicit val stakeRecordJson = Json.format[StakeRecord]
+    implicit val participationRecordJson = Json.format[ParticipationRecord]
+    implicit val json = Json.format[StakeInfo]
+  }
 }
 
 class PaideiaStateActor extends Actor with Logging {
@@ -252,12 +266,26 @@ class PaideiaStateActor extends Actor with Logging {
     })
   }
 
-  def getStake(g: GetStake): Try[StakeRecord] = Try {
-    TotalStakingState(g.daoKey).currentStakingState.stakeRecords
-      .getMap(None)
-      .get
-      .toMap(ErgoId.create(g.stakeKey))
-  }
+  def getStake(g: GetStake): Try[StakeInfo] =
+    Try {
+      val key = ErgoId.create(g.stakeKey)
+      val profitTokenIds = Paideia
+        .getConfig(g.daoKey)
+        .getArray[Object](ConfKeys.im_paideia_staking_profit_tokenids)
+        .map(o => new ErgoId(o.asInstanceOf[Coll[Byte]].toArray).toString())
+      StakeInfo(
+        TotalStakingState(g.daoKey).currentStakingState.stakeRecords
+          .getMap(None)
+          .get
+          .toMap(key),
+        TotalStakingState(g.daoKey).currentStakingState.participationRecords
+          .getMap(None)
+          .get
+          .toMap
+          .get(key),
+        profitTokenIds.toList
+      )
+    }
 
   def createBox(
       ctx: BlockchainContextImpl,
