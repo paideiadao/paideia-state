@@ -115,6 +115,7 @@ object PaideiaStateActor {
   case class CreateProposalBox(
       ctx: BlockchainContextImpl,
       daoKey: String,
+      name: String,
       endTime: Long,
       actions: Array[ProposalAction],
       voteKey: String,
@@ -347,7 +348,8 @@ class PaideiaStateActor extends Actor with Logging {
       .getTokens()
       .get(1)
       .getValue()
-    val proposal = Paideia.getDAO(c.daoKey).newProposal(proposalIndex.toInt)
+    val proposal =
+      Paideia.getDAO(c.daoKey).newProposal(proposalIndex.toInt, c.name)
     val actions = c.actions.map(a =>
       a match {
         case s: SendFundsAction =>
@@ -392,6 +394,7 @@ class PaideiaStateActor extends Actor with Logging {
       ProposalBasic(PaideiaContractSignature(daoKey = c.daoKey))
         .box(
           c.ctx,
+          c.name,
           proposal.proposalIndex,
           Array(0L, 0L),
           0L,
@@ -403,6 +406,7 @@ class PaideiaStateActor extends Actor with Logging {
     val box = CreateProposal(PaideiaContractSignature(daoKey = c.daoKey))
       .box(
         c.ctx,
+        c.name,
         proposalBox,
         actions,
         c.voteKey,

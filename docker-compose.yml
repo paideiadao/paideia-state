@@ -1,0 +1,21 @@
+version: '3'
+
+services:
+
+  paideia-state:
+    container_name: paideia-state
+    image: paideia-state:latest
+    env_file: .env
+    ports:
+      - 9123:9000
+    networks:
+      - p-net
+    restart: unless-stopped
+
+volumes:
+  postgres_vol:
+
+
+networks:
+  p-net:
+    external: true

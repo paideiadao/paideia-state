@@ -144,6 +144,7 @@ class ProposalController @Inject() (
               (paideiaActor ? CreateProposalBox(
                 _ctx.asInstanceOf[BlockchainContextImpl],
                 createProposal.daoKey,
+                createProposal.name,
                 createProposal.endTime,
                 createProposal.sendFundsActions.map(sfa =>
                   SendFundsAction(

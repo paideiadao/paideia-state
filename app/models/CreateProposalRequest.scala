@@ -4,6 +4,7 @@ import play.api.libs.json.Json
 
 final case class CreateProposalRequest(
     daoKey: String,
+    name: String,
     voteKey: String,
     userAddress: String,
     userAddresses: Array[String],
