@@ -37,6 +37,7 @@ import play.api.Logging
 import org.ergoplatform.appkit.ErgoValue
 import org.ergoplatform.appkit.ErgoToken
 import models.CastVoteRequest
+import models.Proposal
 
 @Singleton
 class ProposalController @Inject() (
@@ -54,6 +55,35 @@ class ProposalController @Inject() (
     "",
     Env.conf.getString("explorer")
   )
+
+  def getProposal(daoKey: String, index: Int) = Action.async {
+    implicit request: Request[AnyContent] =>
+      createErgoClient.execute(
+        new java.util.function.Function[BlockchainContext, Future[Result]] {
+          override def apply(_ctx: BlockchainContext): Future[Result] = {
+            (paideiaActor ? GetDAOProposal(
+              _ctx.asInstanceOf[BlockchainContextImpl],
+              daoKey,
+              index
+            ))
+              .mapTo[Try[Proposal]]
+              .map(proposalTry =>
+                proposalTry match {
+                  case Success(proposal) =>
+                    Ok(
+                      Json.toJson(
+                        proposal
+                      )
+                    )
+                  case Failure(exception) =>
+                    logger.info(exception.getStackTrace().mkString)
+                    BadRequest(exception.getMessage())
+                }
+              )
+          }
+        }
+      )
+  }
 
   def castVote = Action.async { implicit request: Request[AnyContent] =>
     val content = request.body

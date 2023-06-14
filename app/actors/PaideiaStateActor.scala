@@ -52,6 +52,15 @@ import im.paideia.DAOConfigValueSerializer
 import play.api.libs.json.Json
 import im.paideia.staking.ParticipationRecord
 import special.collection.Coll
+import org.ergoplatform.appkit.ErgoContract
+import org.ergoplatform.appkit.impl.ErgoTreeContract
+import org.ergoplatform.appkit.NetworkType
+import org.ergoplatform.appkit.InputBox
+import im.paideia.governance.boxes.ProposalBasicBox
+import models.Proposal
+import scorex.crypto.hash.Blake2b256
+import im.paideia.governance.boxes.ActionSendFundsBasicBox
+import models.CreateSendFundsActionOutput
 
 object PaideiaStateActor {
   def props = Props[PaideiaStateActor]
@@ -184,6 +193,19 @@ object PaideiaStateActor {
     implicit val participationRecordJson = Json.format[ParticipationRecord]
     implicit val json = Json.format[StakeInfo]
   }
+
+  case class GetContractSignature(
+      contractHash: Option[List[Byte]],
+      contractAddress: Option[String]
+  )
+
+  case class GetDAOProposals(daoKey: String)
+
+  case class GetDAOProposal(
+      ctx: BlockchainContextImpl,
+      daoKey: String,
+      proposalIndex: Int
+  )
 }
 
 class PaideiaStateActor extends Actor with Logging {
@@ -192,19 +214,186 @@ class PaideiaStateActor extends Actor with Logging {
   initiate
 
   def receive = {
-    case c: CreateDAOBox      => sender() ! createDAOBox(c)
-    case s: StakeBox          => sender() ! stakeBox(s)
-    case a: AddStakeBox       => sender() ! addStakeBox(a)
-    case u: UnstakeBox        => sender() ! unstakeBox(u)
-    case g: GetStake          => sender() ! getStake(g)
-    case e: BlockchainEvent   => sender() ! handleEvent(e)
-    case p: CreateProposalBox => sender() ! createProposal(p)
-    case b: Bootstrap         => sender() ! bootstrap(b)
-    case g: GetAllDAOs        => sender() ! getAllDAOs(g)
-    case g: GetDAOConfig      => sender() ! getDAOConfig(g)
-    case g: GetDAOTreasury    => sender() ! getDAOTreasury(g)
-    case c: CastVoteBox       => sender() ! castVoteBox(c)
+    case c: CreateDAOBox         => sender() ! createDAOBox(c)
+    case s: StakeBox             => sender() ! stakeBox(s)
+    case a: AddStakeBox          => sender() ! addStakeBox(a)
+    case u: UnstakeBox           => sender() ! unstakeBox(u)
+    case g: GetStake             => sender() ! getStake(g)
+    case e: BlockchainEvent      => sender() ! handleEvent(e)
+    case p: CreateProposalBox    => sender() ! createProposal(p)
+    case b: Bootstrap            => sender() ! bootstrap(b)
+    case g: GetAllDAOs           => sender() ! getAllDAOs(g)
+    case g: GetDAOConfig         => sender() ! getDAOConfig(g)
+    case g: GetDAOTreasury       => sender() ! getDAOTreasury(g)
+    case c: CastVoteBox          => sender() ! castVoteBox(c)
+    case g: GetContractSignature => sender() ! getContractSignature(g)
+    case g: GetDAOProposals      => sender() ! getDAOProposals(g)
+    case g: GetDAOProposal       => sender() ! getDAOProposal(g)
   }
+
+  def getDAOProposal(g: GetDAOProposal): Try[Proposal] =
+    Try {
+      val proposalBox = Paideia
+        .getBox(
+          new FilterLeaf(
+            FilterType.FTEQ,
+            new ErgoId(
+              Paideia
+                .getConfig(g.daoKey)
+                .getArray[Byte](ConfKeys.im_paideia_dao_proposal_tokenid)
+            )
+              .toString(),
+            CompareField.ASSET,
+            0
+          )
+        )
+        .find((box: InputBox) =>
+          box
+            .getRegisters()
+            .get(0)
+            .getValue()
+            .asInstanceOf[Coll[Int]](0) == g.proposalIndex
+        )
+        .get
+
+      val actions = Paideia
+        .getBox(
+          new FilterLeaf(
+            FilterType.FTEQ,
+            new ErgoId(
+              Paideia
+                .getConfig(g.daoKey)
+                .getArray[Byte](ConfKeys.im_paideia_dao_action_tokenid)
+            )
+              .toString(),
+            CompareField.ASSET,
+            0
+          )
+        )
+        .filter((box: InputBox) =>
+          box
+            .getRegisters()
+            .get(0)
+            .getValue()
+            .asInstanceOf[Coll[Long]](0) == g.proposalIndex.toLong
+        )
+        .map(ab => {
+          val actionContract = Paideia._actorList.values
+            .flatMap(_.contractInstances)
+            .toMap
+            .get(Blake2b256(ab.getErgoTree().bytes).array.toList)
+            .get
+          actionContract match {
+            case sfa: ActionSendFundsBasic =>
+              val actionBox = ActionSendFundsBasicBox.fromInputBox(g.ctx, ab)
+              val ac = models.SendFundsAction(
+                actionBox.activationTime,
+                actionBox.optionId,
+                actionBox.outputs
+                  .map(ob =>
+                    CreateSendFundsActionOutput(
+                      Address
+                        .fromPropositionBytes(
+                          NetworkType.MAINNET,
+                          ob.propositionBytes.toArray
+                        )
+                        .toString,
+                      ob.value,
+                      ob.tokens
+                        .map(t => (new ErgoId(t._1.toArray).toString(), t._2))
+                        .toArray
+                        .toList,
+                      List[String]()
+                    )
+                  )
+                  .toList
+              )
+              logger.info(ac.toString())
+              ac
+            case _ => throw new Exception("Unknown action contract")
+          }
+        })
+
+      val proposalContract = Paideia.getProposalContract(
+        Blake2b256(proposalBox.getErgoTree().bytes).array.toList
+      )
+      proposalContract match {
+        case pb: ProposalBasic =>
+          val pbBox = ProposalBasicBox.fromInputBox(g.ctx, proposalBox)
+          models.ProposalBasic(
+            pbBox.proposalIndex,
+            pbBox.name,
+            pbBox.endTime,
+            actions,
+            pbBox.voteCount.toList
+          )
+        case _ => throw new Exception("Unknown proposal type")
+      }
+    }
+
+  def getDAOProposals(g: GetDAOProposals): Try[List[(Int, String, Int)]] =
+    Try {
+      val proposalBoxes = Paideia
+        .getBox(
+          new FilterLeaf(
+            FilterType.FTEQ,
+            new ErgoId(
+              Paideia
+                .getConfig(g.daoKey)
+                .getArray[Byte](ConfKeys.im_paideia_dao_proposal_tokenid)
+            )
+              .toString(),
+            CompareField.ASSET,
+            0
+          )
+        )
+
+      Paideia
+        .getDAO(g.daoKey)
+        .proposals
+        .values
+        .map(p => {
+          logger.info(p.name)
+          logger.info(p.proposalIndex.toString())
+          val pBox = proposalBoxes.find((box: InputBox) =>
+            box
+              .getRegisters()
+              .get(0)
+              .getValue()
+              .asInstanceOf[Coll[Int]](0) == p.proposalIndex
+          )
+          (
+            p.proposalIndex,
+            p.name,
+            pBox.map(_.getCreationHeight()).getOrElse(0)
+          )
+        })
+        .toList
+    }
+
+  def getContractSignature(
+      g: GetContractSignature
+  ): Try[PaideiaContractSignature] =
+    Try {
+      Paideia._actorList.values
+        .flatMap(_.contractInstances)
+        .find(p =>
+          g.contractHash match {
+            case None =>
+              g.contractAddress match {
+                case None => false
+                case Some(address) =>
+                  new ErgoTreeContract(p._2.ergoTree, NetworkType.MAINNET)
+                    .toAddress()
+                    .toString()
+                    .equals(address)
+              }
+            case Some(hash) => p._1.sameElements(hash)
+          }
+        )
+        .map(_._2.contractSignature)
+        .getOrElse(PaideiaContractSignature(className = "Unknown"))
+    }
 
   def castVoteBox(c: CastVoteBox): Try[OutBox] =
     Try {

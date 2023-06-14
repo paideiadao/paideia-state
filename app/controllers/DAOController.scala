@@ -33,6 +33,7 @@ import scala.util.Failure
 import scala.collection.mutable.HashMap
 import im.paideia.DAOConfigKey
 import im.paideia.DAOConfigValueDeserializer
+import models.ProposalBase
 
 /** This controller creates an `Action` to handle HTTP requests to the
   * application's home page.
@@ -62,6 +63,29 @@ class DAOController @Inject() (
           case Failure(exception) => BadRequest(exception.getMessage())
         }
       )
+  }
+
+  def getDAOProposals(daoKey: String) = Action.async {
+    implicit request: Request[AnyContent] =>
+      (paideiaActor ? GetDAOProposals(daoKey))
+        .mapTo[Try[List[(Int, String, Int)]]]
+        .map(proposalListTry =>
+          proposalListTry match {
+            case Success(proposalList) =>
+              Ok(
+                Json.toJson(
+                  proposalList.map(p =>
+                    ProposalBase(
+                      p._1,
+                      p._2,
+                      p._3
+                    )
+                  )
+                )
+              )
+            case Failure(exception) => BadRequest(exception.getMessage())
+          }
+        )
   }
 
   def getDAOConfig(daoKey: String) = Action.async {

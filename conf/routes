@@ -9,6 +9,7 @@ POST    /dao/                       controllers.DAOController.daoCreate
 GET     /dao                        controllers.DAOController.getAllDAOs
 GET     /dao/:daoKey/config         controllers.DAOController.getDAOConfig(daoKey: String)
 GET     /dao/:daoKey/treasury       controllers.DAOController.getDAOTreasury(daoKey: String)
+GET     /dao/:daoKey/proposals      controllers.DAOController.getDAOProposals(daoKey: String)
 
 POST    /stake                      controllers.StakeController.stake
 GET     /stake/:daoKey/:stakeKey    controllers.StakeController.getStake(daoKey: String, stakeKey: String)
@@ -17,6 +18,9 @@ POST    /stake/remove               controllers.StakeController.unstake
 
 POST    /proposal                   controllers.ProposalController.createProposal
 POST    /proposal/vote              controllers.ProposalController.castVote
+GET     /proposal/:daoKey/:index    controllers.ProposalController.getProposal(daoKey: String, index: Int)
+
+POST    /util/contractSignature     controllers.UtilController.getContractSignature
 
 # Map static resources from the /public folder to the /assets URL path
 GET     /assets/*file               controllers.Assets.versioned(path="/public", file: Asset)
