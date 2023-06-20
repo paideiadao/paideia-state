@@ -7,7 +7,8 @@ final case class ProposalBasic(
     name: String,
     endTime: Long,
     actions: List[Action],
-    votes: List[Long]
+    votes: List[Long],
+    box_height: Long
 ) extends Proposal
 
 object ProposalBasic {

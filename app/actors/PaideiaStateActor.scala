@@ -325,7 +325,8 @@ class PaideiaStateActor extends Actor with Logging {
             pbBox.name,
             pbBox.endTime,
             actions,
-            pbBox.voteCount.toList
+            pbBox.voteCount.toList,
+            proposalBox.getCreationHeight()
           )
         case _ => throw new Exception("Unknown proposal type")
       }
@@ -369,6 +370,7 @@ class PaideiaStateActor extends Actor with Logging {
           )
         })
         .toList
+        .filter(p => p._3 > 0)
     }
 
   def getContractSignature(
