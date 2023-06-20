@@ -20,6 +20,7 @@ import im.paideia.common.contracts.PaideiaContractSignature
 import scala.util.Success
 import scala.util.Failure
 import models.GetContractSignatureRequest
+import models.ContractSigModel
 
 @Singleton
 class UtilController @Inject() (
@@ -49,7 +50,7 @@ class UtilController @Inject() (
             .map(paideiaContractSigTry =>
               paideiaContractSigTry match {
                 case Success(paideiaContractSig) =>
-                  Ok(Json.toJson(paideiaContractSig.toString()))
+                  Ok(Json.toJson(ContractSigModel(paideiaContractSig)))
                 case Failure(exception) => BadRequest(exception.getMessage())
               }
             )
