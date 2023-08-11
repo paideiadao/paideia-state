@@ -36,7 +36,6 @@ import scala.util.Failure
 import scala.util.Success
 import play.api.Logging
 import org.ergoplatform.explorer.client.model
-import util.ChangeBoxFixer
 import im.paideia.staking.StakeRecord
 import org.ergoplatform.appkit.ExplorerAndPoolUnspentBoxesLoader
 

@@ -35,7 +35,7 @@ import scala.util.Failure
 import scala.util.Success
 import play.api.Logging
 import org.ergoplatform.appkit.ErgoValue
-import org.ergoplatform.appkit.ErgoToken
+import org.ergoplatform.sdk.ErgoToken
 import models.CastVoteRequest
 import models.Proposal
 

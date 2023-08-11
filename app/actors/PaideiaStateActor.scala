@@ -20,7 +20,7 @@ import im.paideia.common.events.PaideiaEventResponse
 import im.paideia.DAOConfig
 import im.paideia.DAO
 import im.paideia.util.ConfKeys
-import org.ergoplatform.appkit.ErgoId
+import org.ergoplatform.sdk.ErgoId
 import im.paideia.common.contracts._
 import im.paideia.governance.contracts._
 import im.paideia.staking.contracts._
@@ -30,7 +30,7 @@ import scala.util.Failure
 import scala.util.Success
 import play.api.Logging
 import special.sigma.Box
-import org.ergoplatform.appkit.ErgoToken
+import org.ergoplatform.sdk.ErgoToken
 import org.ergoplatform.appkit.ErgoValue
 import sigmastate.eval.CostingBox
 import org.ergoplatform.appkit.impl.InputBoxImpl
@@ -529,16 +529,16 @@ class PaideiaStateActor extends Actor with Logging {
             ),
             new FilterLeaf(
               FilterType.FTEQ,
-              ErgoId.create(c.daoKey).getBytes().toIterable,
+              ErgoId.create(c.daoKey).getBytes.toIterable,
               CompareField.REGISTER,
               0
             )
           )
         )
       )(0)
-      .getTokens()
+      .getTokens
       .get(1)
-      .getValue()
+      .getValue
     val proposal =
       Paideia.getDAO(c.daoKey).newProposal(proposalIndex.toInt, c.name)
     val actions = c.actions.map(a =>
@@ -731,7 +731,7 @@ class PaideiaStateActor extends Actor with Logging {
       ConfKeys.im_paideia_dao_tokenid,
       ErgoId
         .create(Env.paideiaTokenId)
-        .getBytes()
+        .getBytes
     )
     paideiaConfig.set(
       ConfKeys.im_paideia_staking_weight_participation,
@@ -769,7 +769,7 @@ class PaideiaStateActor extends Actor with Logging {
       ConfKeys.im_paideia_staking_state_tokenid,
       ErgoId
         .create(Env.conf.getString("im_paideia_staking_state_tokenid"))
-        .getBytes()
+        .getBytes
     )
     paideiaConfig.set(
       ConfKeys.im_paideia_fees_createdao_erg,
@@ -785,19 +785,19 @@ class PaideiaStateActor extends Actor with Logging {
     )
     paideiaConfig.set(
       ConfKeys.im_paideia_dao_key,
-      ErgoId.create(Env.paideiaDaoKey).getBytes()
+      ErgoId.create(Env.paideiaDaoKey).getBytes
     )
     paideiaConfig.set(
       ConfKeys.im_paideia_dao_action_tokenid,
       ErgoId
         .create(Env.conf.getString("im_paideia_dao_action_tokenid"))
-        .getBytes()
+        .getBytes
     )
     paideiaConfig.set(
       ConfKeys.im_paideia_dao_proposal_tokenid,
       ErgoId
         .create(Env.conf.getString("im_paideia_dao_proposal_tokenid"))
-        .getBytes()
+        .getBytes
     )
     Paideia.addDAO(DAO(Env.paideiaDaoKey, paideiaConfig))
     logger.info(Colls.fromArray(paideiaConfig._config.digest).toString())

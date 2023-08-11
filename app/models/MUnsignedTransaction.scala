@@ -4,7 +4,7 @@ import org.ergoplatform.appkit.UnsignedTransaction
 import play.api.libs.json.Json
 import scala.collection.JavaConverters._
 import org.ergoplatform.appkit.impl.InputBoxImpl
-import org.ergoplatform.appkit.ExtendedInputBox
+import org.ergoplatform.sdk.ExtendedInputBox
 import org.ergoplatform.appkit.impl.UnsignedTransactionImpl
 import org.ergoplatform.appkit.ErgoValue
 import scorex.util.encode.Base16
@@ -48,7 +48,7 @@ object MUnsignedTransaction {
             .getTokens()
             .asScala
             .map(token =>
-              MToken(token.getId().toString(), token.getValue().toString())
+              MToken(token.getId.toString(), token.getValue.toString())
             )
             .toArray,
           inp._1
@@ -85,7 +85,7 @@ object MUnsignedTransaction {
             .getTokens()
             .asScala
             .map(token =>
-              MToken(token.getId().toString(), token.getValue().toString())
+              MToken(token.getId.toString(), token.getValue.toString())
             )
             .toArray,
           inp
@@ -112,7 +112,7 @@ object MUnsignedTransaction {
             .getTokens()
             .asScala
             .map(token =>
-              MToken(token.getId().toString(), token.getValue().toString())
+              MToken(token.getId.toString(), token.getValue.toString())
             )
             .toArray,
           outp

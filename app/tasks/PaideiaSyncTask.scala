@@ -30,13 +30,12 @@ import im.paideia.Paideia
 import im.paideia.common.contracts.PaideiaContractSignature
 import im.paideia.staking.contracts.StakeProxy
 import im.paideia.staking.transactions.StakeTransaction
-import util.ChangeBoxFixer
 import im.paideia.common.transactions.PaideiaTransaction
 import im.paideia.common.contracts.Treasury
 import im.paideia.common.events.CreateTransactionsEvent
 import im.paideia.staking.transactions.SplitProfitTransaction
 import im.paideia.staking.transactions.UnstakeTransaction
-import org.ergoplatform.appkit.ErgoId
+import org.ergoplatform.sdk.ErgoId
 import scala.collection.JavaConverters._
 import im.paideia.staking.contracts.AddStakeProxy
 import im.paideia.staking.transactions.EmitTransaction
