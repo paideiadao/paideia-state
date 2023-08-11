@@ -19,7 +19,14 @@ libraryDependencies += "org.scalatestplus.play" %% "scalatestplus-play" % "5.0.0
 
 libraryDependencies += "im.paideia" %% "paideia-sdk" % "0.0.2+153-e6cc3f7a-SNAPSHOT"
 
-dependencyOverrides += "org.scala-lang.modules" %% "scala-parser-combinators" % "1.1.2"
+dependencyOverrides ++= Seq(
+  "org.scala-lang.modules" %% "scala-parser-combinators" % "1.1.2",
+  "org.slf4j" % "slf4j-api" % "1.7.36"
+)
+
+// excludeDependencies ++= Seq(
+//   ExclusionRule("org.slf4j")
+// )
 
 libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-slf4j" % "2.5.19",
