@@ -34,6 +34,7 @@ import scala.collection.mutable.HashMap
 import im.paideia.DAOConfigKey
 import im.paideia.DAOConfigValueDeserializer
 import models.ProposalBase
+import models.DaoConfigValueEntry
 
 /** This controller creates an `Action` to handle HTTP requests to the
   * application's home page.
@@ -100,10 +101,13 @@ class DAOController @Inject() (
                   configMap.map(cv =>
                     (
                       cv._1,
-                      DAOConfigValueDeserializer.deserialize(cv._2) match {
-                        case a: Array[_] => a.map("%02x" format _).mkString
-                        case _ => DAOConfigValueDeserializer(cv._2).toString()
-                      }
+                      DaoConfigValueEntry(
+                        DAOConfigValueDeserializer.getType(cv._2),
+                        DAOConfigValueDeserializer.deserialize(cv._2) match {
+                          case a: Array[_] => a.map("%02x" format _).mkString
+                          case _ => DAOConfigValueDeserializer(cv._2).toString()
+                        }
+                      )
                     )
                   )
                 )
