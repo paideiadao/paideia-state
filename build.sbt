@@ -1,3 +1,4 @@
+import com.typesafe.sbt.packager.docker.ExecCmd
 name := """paideia-state"""
 organization := "im.paideia"
 
@@ -9,7 +10,7 @@ scalaVersion := "2.12.17"
 
 import com.typesafe.sbt.packager.docker.DockerChmodType
 import com.typesafe.sbt.packager.docker.DockerPermissionStrategy
-dockerChmodType := DockerChmodType.UserGroupWriteExecute
+dockerChmodType := DockerChmodType.Custom("777")
 dockerPermissionStrategy := DockerPermissionStrategy.MultiStage
 dockerUpdateLatest := true
 dockerBaseImage := "openjdk:11"

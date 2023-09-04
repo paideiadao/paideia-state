@@ -6,6 +6,7 @@ final case class ProposalBasic(
     proposalIndex: Int,
     name: String,
     endTime: Long,
+    passed: Int,
     actions: List[Action],
     votes: List[Long],
     box_height: Long

@@ -61,6 +61,7 @@ import models.Proposal
 import scorex.crypto.hash.Blake2b256
 import im.paideia.governance.boxes.ActionSendFundsBasicBox
 import models.CreateSendFundsActionOutput
+import scala.reflect.io.File
 
 object PaideiaStateActor {
   def props = Props[PaideiaStateActor]
@@ -324,6 +325,7 @@ class PaideiaStateActor extends Actor with Logging {
             pbBox.proposalIndex,
             pbBox.name,
             pbBox.endTime,
+            pbBox.passed,
             actions,
             pbBox.voteCount.toList,
             proposalBox.getCreationHeight()
@@ -711,6 +713,10 @@ class PaideiaStateActor extends Actor with Logging {
   }
 
   def initiate = {
+    val daoconfigdir = File("./daoconfigs/").toAbsolute.toDirectory
+
+    if (!daoconfigdir.exists)
+      daoconfigdir.createDirectory()
     val paideiaConfig = DAOConfig(Env.paideiaDaoKey)
     val dummyDaoKey =
       "678441d2c6f7254e6b2f317e45989b42ec3dcd33835b4b03b7c61e9fcc80769c"

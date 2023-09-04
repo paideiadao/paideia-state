@@ -45,6 +45,7 @@ import play.api.libs.json.Json
 import org.ergoplatform.appkit.impl.UnsignedTransactionImpl
 import sigmastate.serialization.ValueSerializer
 import scorex.util.encode.Base16
+import scala.reflect.io.File
 
 class PaideiaSyncTask @Inject() (
     @Named("paideia-state") paideiaActor: ActorRef,
