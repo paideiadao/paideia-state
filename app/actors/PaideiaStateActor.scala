@@ -115,6 +115,11 @@ object PaideiaStateActor {
       stakeKey: String
   )
 
+  case class GetDaoStake(
+      ctx: BlockchainContextImpl,
+      daoKey: String
+  )
+
   case class Bootstrap(
       ctx: BlockchainContextImpl,
       stakepoolSize: Long
@@ -195,6 +200,20 @@ object PaideiaStateActor {
     implicit val json = Json.format[StakeInfo]
   }
 
+  case class DaoStakeInfo(
+      totalStaked: Long,
+      stakers: Long,
+      profit: Array[Long],
+      voted: Long,
+      votedTotal: Long,
+      nextEmission: Long,
+      profitTokens: List[String]
+  )
+
+  object DaoStakeInfo {
+    implicit val json = Json.format[DaoStakeInfo]
+  }
+
   case class GetContractSignature(
       contractHash: Option[List[Byte]],
       contractAddress: Option[String]
@@ -220,6 +239,7 @@ class PaideiaStateActor extends Actor with Logging {
     case a: AddStakeBox          => sender() ! addStakeBox(a)
     case u: UnstakeBox           => sender() ! unstakeBox(u)
     case g: GetStake             => sender() ! getStake(g)
+    case g: GetDaoStake          => sender() ! getDaoStake(g)
     case e: BlockchainEvent      => sender() ! handleEvent(e)
     case p: CreateProposalBox    => sender() ! createProposal(p)
     case b: Bootstrap            => sender() ! bootstrap(b)
@@ -477,6 +497,39 @@ class PaideiaStateActor extends Actor with Logging {
           .get
           .toMap
           .get(key),
+        profitTokenIds.toList
+      )
+    }
+
+  def getDaoStake(g: GetDaoStake): Try[DaoStakeInfo] =
+    Try {
+      val profitTokenIds = Paideia
+        .getConfig(g.daoKey)
+        .getArray[Object](ConfKeys.im_paideia_staking_profit_tokenids)
+        .map(o => new ErgoId(o.asInstanceOf[Coll[Byte]].toArray).toString())
+      val stakeStateNFT = new ErgoId(
+        Paideia
+          .getConfig(g.daoKey)
+          .getArray[Byte](ConfKeys.im_paideia_staking_state_tokenid)
+      ).toString()
+      val stakeStateBox = StakeStateBox.fromInputBox(
+        g.ctx,
+        Paideia.getBox(
+          new FilterLeaf[String](
+            FilterType.FTEQ,
+            stakeStateNFT,
+            CompareField.ASSET,
+            0
+          )
+        )(0)
+      )
+      DaoStakeInfo(
+        TotalStakingState(g.daoKey).currentStakingState.totalStaked(),
+        TotalStakingState(g.daoKey).currentStakingState.stakers(),
+        stakeStateBox.profit,
+        stakeStateBox.voted,
+        stakeStateBox.votedTotal,
+        stakeStateBox.nextEmission,
         profitTokenIds.toList
       )
     }
