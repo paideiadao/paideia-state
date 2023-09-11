@@ -545,7 +545,7 @@ class PaideiaStateActor extends Actor with Logging {
       .newTxBuilder()
       .outBoxBuilder()
       .contract(address.toErgoContract())
-      .value(Math.min(nergs, 1000000L))
+      .value(Math.max(nergs, 1000000L))
     if (tokens.size > 0)
       boxBuilder.tokens(tokens: _*)
     if (registers.size > 0)
