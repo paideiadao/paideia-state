@@ -103,10 +103,7 @@ class DAOController @Inject() (
                       cv._1,
                       DaoConfigValueEntry(
                         DAOConfigValueDeserializer.getType(cv._2),
-                        DAOConfigValueDeserializer.deserialize(cv._2) match {
-                          case a: Array[_] => a.map("%02x" format _).mkString
-                          case _ => DAOConfigValueDeserializer(cv._2).toString()
-                        }
+                        DAOConfigValueDeserializer.toString(cv._2)
                       )
                     )
                   )
