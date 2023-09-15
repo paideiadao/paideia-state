@@ -100,8 +100,8 @@ class DAOController @Inject() (
                 Json.toJson(
                   configMap.map(cv =>
                     (
-                      cv._1,
                       DaoConfigValueEntry(
+                        cv._1,
                         DAOConfigValueDeserializer.getType(cv._2),
                         DAOConfigValueDeserializer.toString(cv._2)
                       )

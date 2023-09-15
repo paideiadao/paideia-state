@@ -7,8 +7,8 @@ final case class CreateUpdateConfigActionRequest(
     optionId: Int,
     activationTime: Long,
     remove: Array[String],
-    update: Array[(String, PaideiaStateActor.CValue)],
-    insert: Array[(String, PaideiaStateActor.CValue)]
+    update: Array[DaoConfigValueEntry],
+    insert: Array[DaoConfigValueEntry]
 )
 
 object CreateUpdateConfigActionRequest {

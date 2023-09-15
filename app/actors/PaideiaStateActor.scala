@@ -62,6 +62,8 @@ import scorex.crypto.hash.Blake2b256
 import im.paideia.governance.boxes.ActionSendFundsBasicBox
 import models.CreateSendFundsActionOutput
 import scala.reflect.io.File
+import im.paideia.DAOConfigValueDeserializer
+import models.DaoConfigValueEntry
 
 object PaideiaStateActor {
   def props = Props[PaideiaStateActor]
@@ -152,21 +154,12 @@ object PaideiaStateActor {
       outputs: Array[SendFundsActionOutput]
   ) extends ProposalAction
 
-  case class CValue(
-      valType: String,
-      value: String
-  )
-
-  object CValue {
-    implicit val json = Json.format[CValue]
-  }
-
   case class UpdateConfigAction(
       optionId: Int,
       activationTime: Long,
       remove: Array[String],
-      update: Array[(String, CValue)],
-      insert: Array[(String, CValue)]
+      update: Array[DaoConfigValueEntry],
+      insert: Array[DaoConfigValueEntry]
   ) extends ProposalAction
 
   case class GetAllDAOs()
@@ -560,16 +553,6 @@ class PaideiaStateActor extends Actor with Logging {
     )
   }
 
-  def cValueToBytes(c: CValue): Array[Byte] = {
-    c.valType match {
-      case "Long"   => DAOConfigValueSerializer(c.value.toLong)
-      case "String" => DAOConfigValueSerializer(c.value)
-      case "Int"    => DAOConfigValueSerializer(c.value.toInt)
-      case "Byte"   => DAOConfigValueSerializer(c.value.toByte)
-      case _        => throw new Exception(s"${c.valType} not supported")
-    }
-  }
-
   def createProposal(c: CreateProposalBox): Try[OutBox] = Try {
     val proposalIndex = Long.MaxValue - Paideia
       .getBox(
@@ -627,10 +610,22 @@ class PaideiaStateActor extends Actor with Logging {
               u.activationTime,
               u.remove.map(DAOConfigKey(_)).toList,
               u.update
-                .map(kv => (DAOConfigKey(kv._1), cValueToBytes(kv._2)))
+                .map(dcv =>
+                  (
+                    DAOConfigKey(dcv.key),
+                    DAOConfigValueSerializer
+                      .fromString(dcv.valueType, dcv.value)
+                  )
+                )
                 .toList,
               u.insert
-                .map(kv => (DAOConfigKey(kv._1), cValueToBytes(kv._2)))
+                .map(dcv =>
+                  (
+                    DAOConfigKey(dcv.key),
+                    DAOConfigValueSerializer
+                      .fromString(dcv.valueType, dcv.value)
+                  )
+                )
                 .toList
             )
             .box
