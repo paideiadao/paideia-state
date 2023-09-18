@@ -607,10 +607,12 @@ class PaideiaStateActor extends Actor with Logging {
               !Paideia
                 .getConfig(c.daoKey)
                 ._config
-                .getMap(None)
+                .lookUpWithDigest(DAOConfigKey(k))(None)
+                .response
+                .head
+                .tryOp
                 .get
-                .toMap
-                .contains(DAOConfigKey(k))
+                .isDefined
             )
               throw new Exception(
                 "DAO Config does not contain the key '%s'".format(k)
@@ -621,10 +623,12 @@ class PaideiaStateActor extends Actor with Logging {
               !Paideia
                 .getConfig(c.daoKey)
                 ._config
-                .getMap(None)
+                .lookUpWithDigest(DAOConfigKey(dcv.key))(None)
+                .response
+                .head
+                .tryOp
                 .get
-                .toMap
-                .contains(DAOConfigKey(dcv.key))
+                .isDefined
             ) {
               val properKnownKeys =
                 DAOConfigKey.knownKeys.map(kv => (kv._1.toList, kv._2))
