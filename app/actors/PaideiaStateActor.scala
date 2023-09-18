@@ -60,6 +60,7 @@ import im.paideia.governance.boxes.ProposalBasicBox
 import models.Proposal
 import scorex.crypto.hash.Blake2b256
 import im.paideia.governance.boxes.ActionSendFundsBasicBox
+import im.paideia.governance.boxes.ActionUpdateConfigBox
 import models.CreateSendFundsActionOutput
 import scala.reflect.io.File
 import im.paideia.DAOConfigValueDeserializer
@@ -300,7 +301,7 @@ class PaideiaStateActor extends Actor with Logging {
           actionContract match {
             case sfa: ActionSendFundsBasic =>
               val actionBox = ActionSendFundsBasicBox.fromInputBox(g.ctx, ab)
-              val ac = models.SendFundsAction(
+              models.SendFundsAction(
                 actionBox.activationTime,
                 actionBox.optionId,
                 actionBox.outputs
@@ -322,8 +323,40 @@ class PaideiaStateActor extends Actor with Logging {
                   )
                   .toList
               )
-              logger.info(ac.toString())
-              ac
+            case uca: ActionUpdateConfig =>
+              val properKnownKeys =
+                DAOConfigKey.knownKeys.map(kv => (kv._1.toList, kv._2))
+              val actionBox = ActionUpdateConfigBox.fromInputBox(g.ctx, ab)
+              models.UpdateConfigAction(
+                actionBox.optionId,
+                actionBox.activationTime,
+                actionBox.remove
+                  .map(dck =>
+                    properKnownKeys(dck.hashedKey.toList)
+                      .getOrElse("Unknown Key")
+                  )
+                  .toArray,
+                actionBox.update
+                  .map(dcv =>
+                    DaoConfigValueEntry(
+                      properKnownKeys(dcv._1.hashedKey.toList)
+                        .getOrElse("Unknown Key"),
+                      DAOConfigValueDeserializer.getType(dcv._2),
+                      DAOConfigValueDeserializer.toString(dcv._2)
+                    )
+                  )
+                  .toArray,
+                actionBox.insert
+                  .map(dcv =>
+                    DaoConfigValueEntry(
+                      properKnownKeys(dcv._1.hashedKey.toList)
+                        .getOrElse("Unknown Key"),
+                      DAOConfigValueDeserializer.getType(dcv._2),
+                      DAOConfigValueDeserializer.toString(dcv._2)
+                    )
+                  )
+                  .toArray
+              )
             case _ => throw new Exception("Unknown action contract")
           }
         })
