@@ -625,7 +625,9 @@ class PaideiaStateActor extends Actor with Logging {
                 .get
                 .toMap
                 .contains(DAOConfigKey(dcv.key))
-            )
+            ) {
+              val properKnownKeys =
+                DAOConfigKey.knownKeys.map(kv => (kv._1.toList, kv._2))
               throw new Exception(
                 "DAO Config %s does not contain the key '%s'".format(
                   Paideia
@@ -634,7 +636,7 @@ class PaideiaStateActor extends Actor with Logging {
                     .getMap(None)
                     .get
                     .toMap
-                    .map(e => e._1.originalKey.getOrElse("")),
+                    .map(e => properKnownKeys(e._1.hashedKey.toList).getOrElse("Unknown key")),
                   dcv.key
                 )
               )
