@@ -601,7 +601,96 @@ class PaideiaStateActor extends Actor with Logging {
               s.repeatDelay
             )
             .box
-        case u: UpdateConfigAction =>
+        case u: UpdateConfigAction => {
+          u.remove.foreach(k =>
+            if (
+              !Paideia
+                .getConfig(c.daoKey)
+                ._config
+                .getMap(None)
+                .get
+                .toMap
+                .contains(DAOConfigKey(k))
+            )
+              throw new Exception(
+                "DAO Config does not contain the key '%s'".format(k)
+              )
+          )
+          u.update.foreach(dcv => {
+            if (
+              !Paideia
+                .getConfig(c.daoKey)
+                ._config
+                .getMap(None)
+                .get
+                .toMap
+                .contains(DAOConfigKey(dcv.key))
+            )
+              throw new Exception(
+                "DAO Config does not contain the key '%s'".format(dcv.key)
+              )
+            if (
+              !(DAOConfigValueDeserializer
+                .getType(
+                  Paideia
+                    .getConfig(c.daoKey)
+                    ._config
+                    .getMap(None)
+                    .get
+                    .toMap
+                    .get(DAOConfigKey(dcv.key))
+                    .get
+                )
+                .equals(dcv.valueType))
+            )
+              throw new Exception(
+                "Existing type for key '%s', does not match new type".format(
+                  dcv.key
+                )
+              )
+            if (
+              !(DAOConfigValueDeserializer
+                .toString(
+                  DAOConfigValueSerializer
+                    .fromString(dcv.valueType, dcv.value)
+                )
+                .equals(dcv.value))
+            )
+              throw new Exception(
+                "Failed to serialize/deserialize value for key '%s' without value shift"
+                  .format(
+                    dcv.key
+                  )
+              )
+          })
+          u.insert.foreach(dcv => {
+            if (
+              Paideia
+                .getConfig(c.daoKey)
+                ._config
+                .getMap(None)
+                .get
+                .toMap
+                .contains(DAOConfigKey(dcv.key))
+            )
+              throw new Exception(
+                "DAO Config already contains the key '%s'".format(dcv.key)
+              )
+            if (
+              !(DAOConfigValueDeserializer
+                .toString(
+                  DAOConfigValueSerializer
+                    .fromString(dcv.valueType, dcv.value)
+                )
+                .equals(dcv.value))
+            )
+              throw new Exception(
+                "Failed to serialize/deserialize value for key '%s' without value shift"
+                  .format(
+                    dcv.key
+                  )
+              )
+          })
           ActionUpdateConfig(PaideiaContractSignature(daoKey = c.daoKey))
             .box(
               c.ctx,
@@ -629,6 +718,7 @@ class PaideiaStateActor extends Actor with Logging {
                 .toList
             )
             .box
+        }
       }
     )
     val proposalBox =
