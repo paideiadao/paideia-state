@@ -633,7 +633,8 @@ class PaideiaStateActor extends Actor with Logging {
                     ._config
                     .getMap(None)
                     .get
-                    .toMap,
+                    .toMap
+                    .map(e => e._1.originalKey.getOrElse("")),
                   dcv.key
                 )
               )
