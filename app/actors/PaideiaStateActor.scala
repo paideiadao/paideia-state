@@ -636,10 +636,14 @@ class PaideiaStateActor extends Actor with Logging {
                     .getMap(None)
                     .get
                     .toMap
-                    .map(e => properKnownKeys(e._1.hashedKey.toList).getOrElse("Unknown key")),
+                    .map(e =>
+                      properKnownKeys(e._1.hashedKey.toList)
+                        .getOrElse("Unknown key")
+                    ),
                   dcv.key
                 )
               )
+            }
             if (
               !(DAOConfigValueDeserializer
                 .getType(
