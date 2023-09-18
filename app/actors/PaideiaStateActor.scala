@@ -627,7 +627,15 @@ class PaideiaStateActor extends Actor with Logging {
                 .contains(DAOConfigKey(dcv.key))
             )
               throw new Exception(
-                "DAO Config does not contain the key '%s'".format(dcv.key)
+                "DAO Config %s does not contain the key '%s'".format(
+                  Paideia
+                    .getConfig(c.daoKey)
+                    ._config
+                    .getMap(None)
+                    .get
+                    .toMap,
+                  dcv.key
+                )
               )
             if (
               !(DAOConfigValueDeserializer
