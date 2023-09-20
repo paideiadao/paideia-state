@@ -202,7 +202,8 @@ object PaideiaStateActor {
       votedTotal: Long,
       nextEmission: Long,
       profitTokens: List[String],
-      emission: Long
+      emission: Long,
+      emissionDelay: Long
   )
 
   object DaoStakeInfo {
@@ -536,6 +537,8 @@ class PaideiaStateActor extends Actor with Logging {
         .map(o => new ErgoId(o.asInstanceOf[Coll[Byte]].toArray).toString())
       val emission: Long =
         Paideia.getConfig(g.daoKey)(ConfKeys.im_paideia_staking_emission_amount)
+      val emissionDelay: Long =
+        Paideia.getConfig(g.daoKey)(ConfKeys.im_paideia_staking_emission_delay)
       val stakeStateNFT = new ErgoId(
         Paideia
           .getConfig(g.daoKey)
@@ -560,7 +563,8 @@ class PaideiaStateActor extends Actor with Logging {
         stakeStateBox.votedTotal,
         stakeStateBox.nextEmission,
         profitTokenIds.toList,
-        emission
+        emission,
+        emissionDelay
       )
     }
 
