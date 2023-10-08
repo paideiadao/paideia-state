@@ -9,7 +9,8 @@ final case class ProposalBasic(
     passed: Int,
     actions: List[Action],
     votes: List[Long],
-    box_height: Long
+    box_height: Long,
+    individual_votes: List[ProposalVote]
 ) extends Proposal
 
 object ProposalBasic {

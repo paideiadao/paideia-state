@@ -57,6 +57,7 @@ class PaideiaSyncTask @Inject() (
   implicit val timeout: Timeout = 5.seconds
 
   var currentHeight = Env.conf.getInt("syncStart")
+  var syncing = true
   var mempoolTransactions = mutable.HashMap[String, ErgoTransaction]()
 
   actorSystem.scheduler.scheduleWithFixedDelay(
@@ -134,7 +135,8 @@ class PaideiaSyncTask @Inject() (
                           false,
                           et,
                           fullBlock.getHeader().getHeight()
-                        )
+                        ),
+                        syncing
                       ))
                         .mapTo[Try[PaideiaEventResponse]]
                         .map(per =>
@@ -192,7 +194,8 @@ class PaideiaSyncTask @Inject() (
                 if (!mempoolTransactions.contains(t.getId())) {
                   Await.result(
                     (paideiaActor ? BlockchainEvent(
-                      TransactionEvent(ctx, true, t)
+                      TransactionEvent(ctx, true, t),
+                      syncing
                     ))
                       .mapTo[Try[PaideiaEventResponse]]
                       .map(per =>
@@ -215,7 +218,8 @@ class PaideiaSyncTask @Inject() (
               if (!newMempoolTransactions.contains(kv._1)) {
                 Await.result(
                   (paideiaActor ? BlockchainEvent(
-                    TransactionEvent(ctx, true, kv._2, rollback = true)
+                    TransactionEvent(ctx, true, kv._2, rollback = true),
+                    syncing
                   ))
                     .mapTo[Try[PaideiaEventResponse]]
                     .map(per =>
@@ -280,7 +284,8 @@ class PaideiaSyncTask @Inject() (
                     true,
                     mempoolTransactions(txId),
                     rollback = true
-                  )
+                  ),
+                  syncing
                 ))
                   .mapTo[Try[PaideiaEventResponse]]
                   .map(per =>
@@ -307,7 +312,8 @@ class PaideiaSyncTask @Inject() (
                     .get(0)
                     .getTimestamp(),
                   currentHeight
-                )
+                ),
+                syncing
               ))
                 .mapTo[Try[PaideiaEventResponse]]
                 .map(per =>
@@ -366,6 +372,7 @@ class PaideiaSyncTask @Inject() (
           }
         }
       )
+      syncing = false
     } catch {
       case e: Exception => logger.error(e.getMessage(), e)
     }

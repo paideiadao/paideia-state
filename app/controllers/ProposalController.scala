@@ -137,11 +137,11 @@ class ProposalController @Inject() (
                       } catch {
                         case nete: NotEnoughTokensException =>
                           BadRequest(
-                            "The wallet did not contain the tokens required for bootstrapping"
+                            "The wallet did not contain the tokens required for casting a vote"
                           )
                         case neee: NotEnoughErgsException =>
                           BadRequest(
-                            "Not enough erg in wallet for bootstrapping"
+                            "Not enough erg in wallet for casting a vote"
                           )
                         case necfc: NotEnoughCoinsForChangeException =>
                           BadRequest(
@@ -232,11 +232,11 @@ class ProposalController @Inject() (
                       } catch {
                         case nete: NotEnoughTokensException =>
                           BadRequest(
-                            "The wallet did not contain the tokens required for bootstrapping"
+                            "The wallet did not contain the tokens required for creating a proposal"
                           )
                         case neee: NotEnoughErgsException =>
                           BadRequest(
-                            "Not enough erg in wallet for bootstrapping"
+                            "Not enough erg in wallet for creating a proposal"
                           )
                         case necfc: NotEnoughCoinsForChangeException =>
                           BadRequest(

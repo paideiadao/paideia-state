@@ -141,11 +141,11 @@ class StakeController @Inject() (
                       } catch {
                         case nete: NotEnoughTokensException =>
                           BadRequest(
-                            "The wallet did not contain the tokens required for bootstrapping"
+                            "The wallet did not contain the tokens required for staking"
                           )
                         case neee: NotEnoughErgsException =>
                           BadRequest(
-                            "Not enough erg in wallet for bootstrapping"
+                            "Not enough erg in wallet for staking"
                           )
                         case necfc: NotEnoughCoinsForChangeException =>
                           BadRequest(
@@ -180,44 +180,52 @@ class StakeController @Inject() (
                 addStake.stakeKey,
                 addStake.userAddress,
                 addStake.addStakeAmount
-              )).mapTo[OutBox]
-                .map(outBox =>
-                  try {
-                    Ok(
-                      Json.toJson(
-                        MUnsignedTransaction(
-                          BoxOperations
-                            .createForSenders(
-                              addStake.userAddresses
-                                .map(addr => Address.create(addr))
-                                .toList
-                                .asJava,
-                              _ctx
+              )).mapTo[Try[OutBox]]
+                .map(outBoxTry =>
+                  outBoxTry match {
+                    case Failure(exception) =>
+                      logger.error(exception.getMessage())
+                      BadRequest(exception.getMessage())
+                    case Success(outBox) =>
+                      try {
+                        Ok(
+                          Json.toJson(
+                            MUnsignedTransaction(
+                              BoxOperations
+                                .createForSenders(
+                                  addStake.userAddresses
+                                    .map(addr => Address.create(addr))
+                                    .toList
+                                    .asJava,
+                                  _ctx
+                                )
+                                .withInputBoxesLoader(
+                                  new ExplorerAndPoolUnspentBoxesLoader()
+                                    .withAllowChainedTx(true)
+                                )
+                                .withAmountToSpend(outBox.getValue())
+                                .withTokensToSpend(outBox.getTokens())
+                                .buildTxWithDefaultInputs(tb =>
+                                  tb.addOutputs(outBox)
+                                )
                             )
-                            .withInputBoxesLoader(
-                              new ExplorerAndPoolUnspentBoxesLoader()
-                                .withAllowChainedTx(true)
-                            )
-                            .withAmountToSpend(outBox.getValue())
-                            .withTokensToSpend(outBox.getTokens())
-                            .buildTxWithDefaultInputs(tb =>
-                              tb.addOutputs(outBox)
-                            )
+                          )
                         )
-                      )
-                    )
-                  } catch {
-                    case nete: NotEnoughTokensException =>
-                      BadRequest(
-                        "The wallet did not contain the tokens required for bootstrapping"
-                      )
-                    case neee: NotEnoughErgsException =>
-                      BadRequest("Not enough erg in wallet for bootstrapping")
-                    case necfc: NotEnoughCoinsForChangeException =>
-                      BadRequest(
-                        "Not enough erg for change box, try consolidating your utxos to remove this error"
-                      )
-                    case e: Exception => BadRequest(e.getMessage())
+                      } catch {
+                        case nete: NotEnoughTokensException =>
+                          BadRequest(
+                            "The wallet did not contain the tokens required for adding stake"
+                          )
+                        case neee: NotEnoughErgsException =>
+                          BadRequest(
+                            "Not enough erg in wallet for adding stake"
+                          )
+                        case necfc: NotEnoughCoinsForChangeException =>
+                          BadRequest(
+                            "Not enough erg for change box, try consolidating your utxos to remove this error"
+                          )
+                        case e: Exception => BadRequest(e.getMessage())
+                      }
                   }
                 )
             }
@@ -245,44 +253,52 @@ class StakeController @Inject() (
                 unstake.stakeKey,
                 unstake.userAddress,
                 unstake.newStakeRecord
-              )).mapTo[OutBox]
-                .map(outBox =>
-                  try {
-                    Ok(
-                      Json.toJson(
-                        MUnsignedTransaction(
-                          BoxOperations
-                            .createForSenders(
-                              unstake.userAddresses
-                                .map(addr => Address.create(addr))
-                                .toList
-                                .asJava,
-                              _ctx
+              )).mapTo[Try[OutBox]]
+                .map(outBoxTry =>
+                  outBoxTry match {
+                    case Failure(exception) =>
+                      logger.error(exception.getMessage())
+                      BadRequest(exception.getMessage())
+                    case Success(outBox) =>
+                      try {
+                        Ok(
+                          Json.toJson(
+                            MUnsignedTransaction(
+                              BoxOperations
+                                .createForSenders(
+                                  unstake.userAddresses
+                                    .map(addr => Address.create(addr))
+                                    .toList
+                                    .asJava,
+                                  _ctx
+                                )
+                                .withInputBoxesLoader(
+                                  new ExplorerAndPoolUnspentBoxesLoader()
+                                    .withAllowChainedTx(true)
+                                )
+                                .withAmountToSpend(outBox.getValue())
+                                .withTokensToSpend(outBox.getTokens())
+                                .buildTxWithDefaultInputs(tb =>
+                                  tb.addOutputs(outBox)
+                                )
                             )
-                            .withInputBoxesLoader(
-                              new ExplorerAndPoolUnspentBoxesLoader()
-                                .withAllowChainedTx(true)
-                            )
-                            .withAmountToSpend(outBox.getValue())
-                            .withTokensToSpend(outBox.getTokens())
-                            .buildTxWithDefaultInputs(tb =>
-                              tb.addOutputs(outBox)
-                            )
+                          )
                         )
-                      )
-                    )
-                  } catch {
-                    case nete: NotEnoughTokensException =>
-                      BadRequest(
-                        "The wallet did not contain the tokens required for bootstrapping"
-                      )
-                    case neee: NotEnoughErgsException =>
-                      BadRequest("Not enough erg in wallet for bootstrapping")
-                    case necfc: NotEnoughCoinsForChangeException =>
-                      BadRequest(
-                        "Not enough erg for change box, try consolidating your utxos to remove this error"
-                      )
-                    case e: Exception => BadRequest(e.getMessage())
+                      } catch {
+                        case nete: NotEnoughTokensException =>
+                          BadRequest(
+                            "The wallet did not contain the tokens required for unstaking"
+                          )
+                        case neee: NotEnoughErgsException =>
+                          BadRequest(
+                            "Not enough erg in wallet for unstaking"
+                          )
+                        case necfc: NotEnoughCoinsForChangeException =>
+                          BadRequest(
+                            "Not enough erg for change box, try consolidating your utxos to remove this error"
+                          )
+                        case e: Exception => BadRequest(e.getMessage())
+                      }
                   }
                 )
             }

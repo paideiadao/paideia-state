@@ -65,6 +65,7 @@ import models.CreateSendFundsActionOutput
 import scala.reflect.io.File
 import im.paideia.DAOConfigValueDeserializer
 import models.DaoConfigValueEntry
+import models.ProposalVote
 
 object PaideiaStateActor {
   def props = Props[PaideiaStateActor]
@@ -110,7 +111,8 @@ object PaideiaStateActor {
   )
 
   case class BlockchainEvent(
-      event: PaideiaEvent
+      event: PaideiaEvent,
+      syncing: Boolean
   )
 
   case class GetStake(
@@ -229,6 +231,8 @@ class PaideiaStateActor extends Actor with Logging {
 
   initiate
 
+  var syncing = true
+
   def receive = {
     case c: CreateDAOBox         => sender() ! createDAOBox(c)
     case s: StakeBox             => sender() ! stakeBox(s)
@@ -250,6 +254,10 @@ class PaideiaStateActor extends Actor with Logging {
 
   def getDAOProposal(g: GetDAOProposal): Try[Proposal] =
     Try {
+      if (syncing)
+        throw new Exception(
+          "Paideia state is currently syncing, try again some time later."
+        )
       val proposalBox = Paideia
         .getBox(
           new FilterLeaf(
@@ -366,6 +374,8 @@ class PaideiaStateActor extends Actor with Logging {
       val proposalContract = Paideia.getProposalContract(
         Blake2b256(proposalBox.getErgoTree().bytes).array.toList
       )
+      val proposal =
+        Paideia.getDAO(g.daoKey).proposals.get(g.proposalIndex).get
       proposalContract match {
         case pb: ProposalBasic =>
           val pbBox = ProposalBasicBox.fromInputBox(g.ctx, proposalBox)
@@ -376,7 +386,15 @@ class PaideiaStateActor extends Actor with Logging {
             pbBox.passed,
             actions,
             pbBox.voteCount.toList,
-            proposalBox.getCreationHeight()
+            proposalBox.getCreationHeight(),
+            proposal.votes
+              .getMap(None)
+              .get
+              .toMap
+              .map((kv: (ErgoId, VoteRecord)) =>
+                ProposalVote(kv._1.toString(), kv._2.votes.toList)
+              )
+              .toList
           )
         case _ => throw new Exception("Unknown proposal type")
       }
@@ -384,6 +402,10 @@ class PaideiaStateActor extends Actor with Logging {
 
   def getDAOProposals(g: GetDAOProposals): Try[List[(Int, String, Int)]] =
     Try {
+      if (syncing)
+        throw new Exception(
+          "Paideia state is currently syncing, try again some time later."
+        )
       val proposalBoxes = Paideia
         .getBox(
           new FilterLeaf(
@@ -427,6 +449,10 @@ class PaideiaStateActor extends Actor with Logging {
       g: GetContractSignature
   ): Try[PaideiaContractSignature] =
     Try {
+      if (syncing)
+        throw new Exception(
+          "Paideia state is currently syncing, try again some time later."
+        )
       Paideia._actorList.values
         .flatMap(_.contractInstances)
         .find(p =>
@@ -449,6 +475,10 @@ class PaideiaStateActor extends Actor with Logging {
 
   def castVoteBox(c: CastVoteBox): Try[OutBox] =
     Try {
+      if (syncing)
+        throw new Exception(
+          "Paideia state is currently syncing, try again some time later."
+        )
       CastVote(PaideiaContractSignature(daoKey = c.daoKey))
         .box(
           c.ctx,
@@ -462,6 +492,10 @@ class PaideiaStateActor extends Actor with Logging {
 
   def getDAOTreasury(g: GetDAOTreasury): Try[String] =
     Try {
+      if (syncing)
+        throw new Exception(
+          "Paideia state is currently syncing, try again some time later."
+        )
       Treasury(PaideiaContractSignature(daoKey = g.daoKey)).contract
         .toAddress()
         .toString()
@@ -469,6 +503,10 @@ class PaideiaStateActor extends Actor with Logging {
 
   def getDAOConfig(g: GetDAOConfig): Try[Map[String, Array[Byte]]] =
     Try {
+      if (syncing)
+        throw new Exception(
+          "Paideia state is currently syncing, try again some time later."
+        )
       val properKnownKeys =
         DAOConfigKey.knownKeys.map(kv => (kv._1.toList, kv._2))
       Paideia
@@ -486,6 +524,10 @@ class PaideiaStateActor extends Actor with Logging {
     }
 
   def getAllDAOs(g: GetAllDAOs): Try[HashMap[String, (String, Int)]] = Try {
+    if (syncing)
+      throw new Exception(
+        "Paideia state is currently syncing, try again some time later."
+      )
     Paideia._daoMap.map(d => {
       val configContract = Config(
         d._2
@@ -510,6 +552,10 @@ class PaideiaStateActor extends Actor with Logging {
 
   def getStake(g: GetStake): Try[StakeInfo] =
     Try {
+      if (syncing)
+        throw new Exception(
+          "Paideia state is currently syncing, try again some time later."
+        )
       val key = ErgoId.create(g.stakeKey)
       val profitTokenIds = Paideia
         .getConfig(g.daoKey)
@@ -531,6 +577,10 @@ class PaideiaStateActor extends Actor with Logging {
 
   def getDaoStake(g: GetDaoStake): Try[DaoStakeInfo] =
     Try {
+      if (syncing)
+        throw new Exception(
+          "Paideia state is currently syncing, try again some time later."
+        )
       val profitTokenIds = Paideia
         .getConfig(g.daoKey)
         .getArray[Object](ConfKeys.im_paideia_staking_profit_tokenids)
@@ -595,6 +645,10 @@ class PaideiaStateActor extends Actor with Logging {
   }
 
   def createProposal(c: CreateProposalBox): Try[OutBox] = Try {
+    if (syncing)
+      throw new Exception(
+        "Paideia state is currently syncing, try again some time later."
+      )
     val proposalIndex = Long.MaxValue - Paideia
       .getBox(
         new FilterNode(
@@ -806,6 +860,10 @@ class PaideiaStateActor extends Actor with Logging {
   }
 
   def createDAOBox(c: CreateDAOBox): Try[OutBox] = Try {
+    if (syncing)
+      throw new Exception(
+        "Paideia state is currently syncing, try again some time later."
+      )
     ProtoDAOProxy(
       PaideiaContractSignature(daoKey = Env.paideiaDaoKey)
     ).box(
@@ -827,31 +885,41 @@ class PaideiaStateActor extends Actor with Logging {
     ).outBox
   }
 
-  def stakeBox(s: StakeBox): Try[OutBox] = try {
-    Success(
-      StakeProxy(
-        PaideiaContractSignature(daoKey = s.daoKey)
-      ).box(s.ctx, s.userAddress, s.stakeAmount).outBox
-    )
-  } catch {
-    case e: Exception => Failure(e)
+  def stakeBox(s: StakeBox): Try[OutBox] = Try {
+    if (syncing)
+      throw new Exception(
+        "Paideia state is currently syncing, try again some time later."
+      )
+    StakeProxy(
+      PaideiaContractSignature(daoKey = s.daoKey)
+    ).box(s.ctx, s.userAddress, s.stakeAmount).outBox
   }
 
-  def addStakeBox(a: AddStakeBox): OutBox = AddStakeProxy(
-    PaideiaContractSignature(daoKey = a.daoKey)
-  ).box(a.ctx, a.stakeKey, a.addStakeAmount, a.userAddress).outBox
+  def addStakeBox(a: AddStakeBox): Try[OutBox] = Try {
+    if (syncing)
+      throw new Exception(
+        "Paideia state is currently syncing, try again some time later."
+      )
+    AddStakeProxy(
+      PaideiaContractSignature(daoKey = a.daoKey)
+    ).box(a.ctx, a.stakeKey, a.addStakeAmount, a.userAddress).outBox
+  }
 
-  def unstakeBox(u: UnstakeBox): OutBox =
+  def unstakeBox(u: UnstakeBox): Try[OutBox] = Try {
+    if (syncing)
+      throw new Exception(
+        "Paideia state is currently syncing, try again some time later."
+      )
+
     UnstakeProxy(PaideiaContractSignature(daoKey = u.daoKey))
       .box(u.ctx, u.stakeKey, u.newStakeRecord, u.userAddress)
       .outBox
+  }
 
   def handleEvent(e: BlockchainEvent): Try[PaideiaEventResponse] =
-    try {
-      Success(Paideia.handleEvent(e.event))
-    } catch {
-      case exception: Exception =>
-        Failure(exception)
+    Try {
+      syncing = e.syncing
+      Paideia.handleEvent(e.event)
     }
 
   def bootstrap(b: Bootstrap): Array[OutBox] = {
