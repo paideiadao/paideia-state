@@ -22,7 +22,8 @@ libraryDependencies += "im.paideia" %% "paideia-sdk" % "0.0.2+209-612a1fd8-SNAPS
 
 dependencyOverrides ++= Seq(
   "org.scala-lang.modules" %% "scala-parser-combinators" % "1.1.2",
-  "org.slf4j" % "slf4j-api" % "1.7.36"
+  "org.slf4j" % "slf4j-api" % "1.7.36",
+  "org.ergoplatform" % "ergo-appkit_2.12" % "master-62c8e0dd-SNAPSHOT"
 )
 
 // excludeDependencies ++= Seq(
