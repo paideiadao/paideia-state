@@ -426,8 +426,6 @@ class PaideiaStateActor extends Actor with Logging {
         .proposals
         .values
         .map(p => {
-          logger.info(p.name)
-          logger.info(p.proposalIndex.toString())
           val pBox = proposalBoxes.find((box: InputBox) =>
             box
               .getRegisters()
