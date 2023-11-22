@@ -96,38 +96,58 @@ class PaideiaSyncTask @Inject() (
                 .body()
                 .getFullHeight()
 
-            if (currentHeight < nodeHeight)
+            if (currentHeight < nodeHeight) {
               logger.info(s"""Node height: ${nodeHeight.toString()}""")
 
-            while (currentHeight < nodeHeight) {
-              val blockHeaderId = datasource
-                .getNodeBlocksApi()
-                .getFullBlockAt(currentHeight)
-                .execute()
-                .body()
-                .get(0)
-              val fullBlock = datasource
-                .getNodeBlocksApi()
-                .getFullBlockById(blockHeaderId)
-                .execute()
-                .body()
-              val txs = fullBlock
-                .getBlockTransactions()
-                .getTransactions()
-                .asScala
-              val outputs =
-                txs
-                  .flatMap(t => t.getOutputs().asScala)
-                  .map(eto => eto.getBoxId())
+              var blockAwaitable = Future {
+                val blockHeaderId = datasource
+                  .getNodeBlocksApi()
+                  .getFullBlockAt(currentHeight)
+                  .execute()
+                  .body()
+                  .get(0);
+                datasource
+                  .getNodeBlocksApi()
+                  .getFullBlockById(blockHeaderId)
+                  .execute()
+                  .body()
+              };
 
-              while (txs.toArray.length > 0) {
-                val handledTxs = mutable.Buffer[ErgoTransaction]()
+              while (currentHeight < nodeHeight) {
+                val fullBlock =
+                  Await.result(blockAwaitable, 5.seconds)
+                if (currentHeight + 1 < nodeHeight)
+                  blockAwaitable = Future {
+                    val blockHeaderId = datasource
+                      .getNodeBlocksApi()
+                      .getFullBlockAt(currentHeight + 1)
+                      .execute()
+                      .body()
+                      .get(0);
+                    datasource
+                      .getNodeBlocksApi()
+                      .getFullBlockById(blockHeaderId)
+                      .execute()
+                      .body()
+                  };
+                val txs = fullBlock
+                  .getBlockTransactions()
+                  .getTransactions()
+                  .asScala
+                // val outputs =
+                //   txs
+                //     .flatMap(t => t.getOutputs().asScala)
+                //     .map(eto => eto.getBoxId())
+
+                // while (txs.toArray.length > 0) {
+                // val handledTxs = mutable.Buffer[ErgoTransaction]()
                 txs.foreach(et =>
-                  if (
-                    et.getInputs()
-                      .asScala
-                      .forall(eti => !outputs.contains(eti.getBoxId()))
-                  ) {
+                  // if (
+                  //   et.getInputs()
+                  //     .asScala
+                  //     .forall(eti => !outputs.contains(eti.getBoxId()))
+                  // )
+                  {
                     Await.result(
                       (paideiaActor ? BlockchainEvent(
                         TransactionEvent(
@@ -154,25 +174,26 @@ class PaideiaSyncTask @Inject() (
 
                           }
                         ),
-                      5.seconds
+                      30.seconds
                     )
 
-                    et.getOutputs()
-                      .asScala
-                      .foreach(eto => outputs -= eto.getBoxId())
-                    handledTxs += et
+                    // et.getOutputs()
+                    //   .asScala
+                    //   .foreach(eto => outputs -= eto.getBoxId())
+                    // handledTxs += et
                   }
                 )
 
-                handledTxs.foreach(et => txs -= et)
+                // handledTxs.foreach(et => txs -= et)
 
-                if (txs.toArray.length > 0) logger.info("Reordering needed")
+                // if (txs.toArray.length > 0) logger.info("Reordering needed")
+                // }
+                currentHeight += 1
+                if (currentHeight % 100 == 0)
+                  logger.info(
+                    s"""Syncer current height: ${currentHeight.toString}"""
+                  )
               }
-              currentHeight += 1
-              if (currentHeight % 100 == 0)
-                logger.info(
-                  s"""Syncer current height: ${currentHeight.toString}"""
-                )
             }
 
             var offset = 0
