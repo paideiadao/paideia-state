@@ -6,7 +6,16 @@ import play.api.libs.json.Reads
 import play.api.libs.json.Writes
 
 final case class CreateDAORequest(
-    daoName: String,
+    name: String,
+    url: String,
+    logo: String,
+    description: String,
+    minProposalTime: Long,
+    banner: String,
+    bannerEnabled: Boolean,
+    footer: String,
+    footerEnabled: Boolean,
+    theme: String,
     daoGovernanceTokenId: String,
     stakePoolSize: Long,
     governanceType: GovernanceType.Value,

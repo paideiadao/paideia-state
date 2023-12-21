@@ -146,7 +146,16 @@ class DAOController @Inject() (
             override def apply(_ctx: BlockchainContext): Future[Result] = {
               (paideiaActor ? CreateDAOBox(
                 _ctx.asInstanceOf[BlockchainContextImpl],
-                createDAO.daoName,
+                createDAO.name,
+                createDAO.url,
+                createDAO.logo,
+                createDAO.description,
+                createDAO.minProposalTime,
+                createDAO.banner,
+                createDAO.bannerEnabled,
+                createDAO.footer,
+                createDAO.footerEnabled,
+                createDAO.theme,
                 createDAO.daoGovernanceTokenId,
                 createDAO.stakePoolSize,
                 createDAO.governanceType,

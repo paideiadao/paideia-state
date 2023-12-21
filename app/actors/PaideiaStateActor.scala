@@ -72,7 +72,16 @@ object PaideiaStateActor {
 
   case class CreateDAOBox(
       ctx: BlockchainContextImpl,
-      daoName: String,
+      name: String,
+      url: String,
+      logo: String,
+      description: String,
+      minProposalTime: Long,
+      banner: String,
+      bannerEnabled: Boolean,
+      footer: String,
+      footerEnabled: Boolean,
+      theme: String,
       daoGovernanceTokenId: String,
       stakePoolSize: Long,
       governanceType: GovernanceType.Value,
@@ -867,7 +876,7 @@ class PaideiaStateActor extends Actor with Logging {
     ).box(
       c.ctx,
       Paideia.getConfig(Env.paideiaDaoKey),
-      c.daoName,
+      c.name,
       c.daoGovernanceTokenId,
       c.stakePoolSize,
       c.governanceType,
@@ -879,7 +888,16 @@ class PaideiaStateActor extends Actor with Logging {
       c.stakingProfitSharePct,
       Address.create(c.userAddress),
       c.pureParticipationWeight,
-      c.participationWeight
+      c.participationWeight,
+      c.url,
+      c.description,
+      c.logo,
+      c.minProposalTime,
+      c.banner,
+      c.bannerEnabled,
+      c.footer,
+      c.footerEnabled,
+      c.theme
     ).outBox
   }
 
