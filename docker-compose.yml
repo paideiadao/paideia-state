@@ -7,7 +7,7 @@ services:
     image: paideia-state:latest
     env_file: .env
     volumes:
-      - ./transaction_archive:/opt/docker/bin/transaction_archive
+      - ./transaction_archive:/opt/docker/transaction_archive
     ports:
       - 9123:9000
     networks:
