@@ -535,6 +535,15 @@ class PaideiaStateActor extends Actor with Logging {
       throw new Exception(
         "Paideia state is currently syncing, try again some time later."
       )
+    val paideiaConfigBoxes = Paideia.getBox(
+      new FilterLeaf[String](
+        FilterType.FTEQ,
+        Env.paideiaDaoKey,
+        CompareField.ASSET,
+        0
+      )
+    )
+    logger.logger.info(paideiaConfigBoxes.toString())
     Paideia._daoMap.map(d => {
       val configContract = Config(
         d._2
