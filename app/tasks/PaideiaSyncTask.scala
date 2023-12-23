@@ -66,7 +66,7 @@ class PaideiaSyncTask @Inject() (
   var mempoolTransactions = mutable.HashMap[String, ErgoTransaction]()
 
   actorSystem.scheduler.scheduleWithFixedDelay(
-    initialDelay = 5.seconds,
+    initialDelay = 10.seconds,
     delay = 20.seconds
   )(() => {
 
