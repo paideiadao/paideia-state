@@ -535,47 +535,6 @@ class PaideiaStateActor extends Actor with Logging {
       throw new Exception(
         "Paideia state is currently syncing, try again some time later."
       )
-    val paideiaConfigBox = Paideia.getBox(
-      new FilterLeaf[String](
-        FilterType.FTEQ,
-        Env.paideiaDaoKey,
-        CompareField.ASSET,
-        0
-      )
-    )(0)
-
-    val paideiaConfigDigest =
-      ADDigest @@ paideiaConfigBox
-        .getRegisters()
-        .get(0)
-        .getValue()
-        .asInstanceOf[AvlTree]
-        .digest
-        .toArray
-
-    logger.logger.info(paideiaConfigDigest.map("%02X" format _).mkString)
-
-    logger.logger.info(
-      Paideia
-        .getConfig(Env.paideiaDaoKey)
-        ._config
-        .localMap
-        .digest
-        .map("%02X" format _)
-        .mkString
-    )
-
-    logger.logger.info(
-      Paideia
-        .getConfig(Env.paideiaDaoKey)
-        ._config
-        .localMap
-        .prover
-        .digest
-        .map("%02X" format _)
-        .mkString
-    )
-
     Paideia._daoMap.map(d => {
       val configContract = Config(
         d._2
@@ -976,7 +935,40 @@ class PaideiaStateActor extends Actor with Logging {
   def handleEvent(e: BlockchainEvent): Try[PaideiaEventResponse] =
     Try {
       syncing = e.syncing
-      Paideia.handleEvent(e.event)
+      val res = Paideia.handleEvent(e.event)
+      if (res.status > 0) {
+        val paideiaConfigBox = Paideia.getBox(
+          new FilterLeaf[String](
+            FilterType.FTEQ,
+            Env.paideiaDaoKey,
+            CompareField.ASSET,
+            0
+          )
+        )(0)
+
+        val paideiaConfigDigest =
+          ADDigest @@ paideiaConfigBox
+            .getRegisters()
+            .get(0)
+            .getValue()
+            .asInstanceOf[AvlTree]
+            .digest
+            .toArray
+
+        logger.logger.info(paideiaConfigDigest.map("%02X" format _).mkString)
+
+        logger.logger.info(
+          Paideia
+            .getConfig(Env.paideiaDaoKey)
+            ._config
+            .localMap
+            .digest
+            .map("%02X" format _)
+            .mkString
+        )
+
+      }
+      res
     }
 
   def bootstrap(b: Bootstrap): Array[OutBox] = {
