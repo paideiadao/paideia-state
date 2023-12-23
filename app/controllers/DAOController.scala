@@ -44,7 +44,8 @@ class DAOController @Inject() (
     @Named("paideia-state") paideiaActor: ActorRef,
     val controllerComponents: ControllerComponents
 )(implicit ec: ExecutionContext)
-    extends BaseController {
+    extends BaseController
+    with Logging {
 
   implicit val timeout: Timeout = 5.seconds
 
@@ -168,40 +169,48 @@ class DAOController @Inject() (
                 createDAO.userAddresses(0),
                 createDAO.pureParticipationWeight,
                 createDAO.participationWeight
-              )).mapTo[OutBox]
-                .map(outBox =>
-                  try {
-                    Ok(
-                      Json.toJson(
-                        MUnsignedTransaction(
-                          BoxOperations
-                            .createForSenders(
-                              createDAO.userAddresses
-                                .map(addr => Address.create(addr))
-                                .toList
-                                .asJava,
-                              _ctx
+              )).mapTo[Try[OutBox]]
+                .map(outBoxTry =>
+                  outBoxTry match {
+                    case Success(outBox) =>
+                      try {
+                        Ok(
+                          Json.toJson(
+                            MUnsignedTransaction(
+                              BoxOperations
+                                .createForSenders(
+                                  createDAO.userAddresses
+                                    .map(addr => Address.create(addr))
+                                    .toList
+                                    .asJava,
+                                  _ctx
+                                )
+                                .withAmountToSpend(outBox.getValue())
+                                .withTokensToSpend(outBox.getTokens())
+                                .buildTxWithDefaultInputs(tb =>
+                                  tb.addOutputs(outBox)
+                                )
                             )
-                            .withAmountToSpend(outBox.getValue())
-                            .withTokensToSpend(outBox.getTokens())
-                            .buildTxWithDefaultInputs(tb =>
-                              tb.addOutputs(outBox)
-                            )
+                          )
                         )
-                      )
-                    )
-                  } catch {
-                    case nete: NotEnoughTokensException =>
-                      BadRequest(
-                        "The wallet did not contain the tokens required for bootstrapping"
-                      )
-                    case neee: NotEnoughErgsException =>
-                      BadRequest("Not enough erg in wallet for bootstrapping")
-                    case necfc: NotEnoughCoinsForChangeException =>
-                      BadRequest(
-                        "Not enough erg for change box, try consolidating your utxos to remove this error"
-                      )
-                    case e: Exception => BadRequest(e.getMessage())
+                      } catch {
+                        case nete: NotEnoughTokensException =>
+                          BadRequest(
+                            "The wallet did not contain the tokens required for bootstrapping"
+                          )
+                        case neee: NotEnoughErgsException =>
+                          BadRequest(
+                            "Not enough erg in wallet for bootstrapping"
+                          )
+                        case necfc: NotEnoughCoinsForChangeException =>
+                          BadRequest(
+                            "Not enough erg for change box, try consolidating your utxos to remove this error"
+                          )
+                        case e: Exception => BadRequest(e.getMessage())
+                      }
+                    case Failure(exception) =>
+                      logger.info(exception.getStackTrace().mkString)
+                      BadRequest(exception.getMessage())
                   }
                 )
             }
