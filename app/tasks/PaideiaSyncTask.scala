@@ -46,9 +46,14 @@ import org.ergoplatform.appkit.impl.UnsignedTransactionImpl
 import sigmastate.serialization.ValueSerializer
 import scorex.util.encode.Base16
 import scala.reflect.io.File
+import java.nio.file.Files
+import java.nio.file.Paths
+import java.nio.charset.StandardCharsets
+import com.google.gson.Gson
 
 class PaideiaSyncTask @Inject() (
     @Named("paideia-state") paideiaActor: ActorRef,
+    @Named("paideia-archive") archiveActor: ActorRef,
     actorSystem: ActorSystem
 )(implicit
     ec: ExecutionContext
@@ -82,6 +87,59 @@ class PaideiaSyncTask @Inject() (
           override def apply(_ctx: BlockchainContext): Unit = {
 
             val ctx = _ctx.asInstanceOf[BlockchainContextImpl]
+            if (syncing) {
+              val archivedTransactionFiles = Files
+                .list(Paths.get("transaction_archive"))
+                .iterator()
+                .asScala
+                .filter(Files.isRegularFile(_))
+                .toSeq
+                .sorted
+
+              archivedTransactionFiles.foreach((p) => {
+                logger.info(p.toString())
+                val height = p.getFileName().toString().toInt
+                val transactions: Array[ErgoTransaction] =
+                  new Gson().fromJson(
+                    Files.readString(p, StandardCharsets.UTF_8),
+                    classOf[Array[ErgoTransaction]]
+                  )
+                transactions.foreach((et) => {
+                  val event = TransactionEvent(
+                    ctx,
+                    false,
+                    et,
+                    height
+                  )
+                  Await.result(
+                    (paideiaActor ? BlockchainEvent(
+                      event,
+                      syncing
+                    ))
+                      .mapTo[Try[PaideiaEventResponse]]
+                      .map(per =>
+                        per match {
+                          case Success(resp) => {
+                            resp.exceptions
+                              .foreach(e => {
+
+                                logger.error(e.getMessage(), e)
+                                throw e
+
+                              })
+                          }
+
+                          case Failure(exception) =>
+                            logger.error(exception.getMessage(), exception)
+
+                        }
+                      ),
+                    30.seconds
+                  )
+                })
+                currentHeight = height + 1
+              })
+            }
 
             val datasource =
               ergoClient
@@ -97,7 +155,8 @@ class PaideiaSyncTask @Inject() (
                 .getFullHeight()
 
             if (currentHeight < nodeHeight) {
-              logger.info(s"""Node height: ${nodeHeight.toString()}""")
+              logger.info(s"""Node height: ${nodeHeight
+                  .toString()} Current height: ${currentHeight.toString()}""")
 
               var blockAwaitable = Future {
                 val blockHeaderId = datasource
@@ -148,26 +207,30 @@ class PaideiaSyncTask @Inject() (
                   //     .forall(eti => !outputs.contains(eti.getBoxId()))
                   // )
                   {
+                    val event = TransactionEvent(
+                      ctx,
+                      false,
+                      et,
+                      fullBlock.getHeader().getHeight()
+                    )
                     Await.result(
                       (paideiaActor ? BlockchainEvent(
-                        TransactionEvent(
-                          ctx,
-                          false,
-                          et,
-                          fullBlock.getHeader().getHeight()
-                        ),
+                        event,
                         syncing
                       ))
                         .mapTo[Try[PaideiaEventResponse]]
                         .map(per =>
                           per match {
-                            case Success(resp) =>
+                            case Success(resp) => {
+                              if (resp.status > 0) (archiveActor ? event)
                               resp.exceptions
                                 .foreach(e => {
 
                                   logger.error(e.getMessage(), e)
+                                  throw e
 
                                 })
+                            }
 
                             case Failure(exception) =>
                               logger.error(exception.getMessage(), exception)

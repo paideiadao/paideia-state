@@ -6,15 +6,13 @@ services:
     container_name: paideia-state
     image: paideia-state:latest
     env_file: .env
+    volumes:
+      - ./transaction_archive:transaction_archive
     ports:
       - 9123:9000
     networks:
       - p-net
     restart: unless-stopped
-
-volumes:
-  postgres_vol:
-
 
 networks:
   p-net:
