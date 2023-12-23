@@ -565,6 +565,17 @@ class PaideiaStateActor extends Actor with Logging {
         .mkString
     )
 
+    logger.logger.info(
+      Paideia
+        .getConfig(Env.paideiaDaoKey)
+        ._config
+        .localMap
+        .prover
+        .digest
+        .map("%02X" format _)
+        .mkString
+    )
+
     Paideia._daoMap.map(d => {
       val configContract = Config(
         d._2
