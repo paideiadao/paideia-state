@@ -961,7 +961,20 @@ class PaideiaStateActor extends Actor with Logging {
           Paideia
             .getConfig(Env.paideiaDaoKey)
             ._config
-            .localMap
+            .digest
+            .map("%02X" format _)
+            .mkString
+        )
+
+        Paideia
+          .getConfig(Env.paideiaDaoKey)
+          ._config
+          .toMap
+
+        logger.logger.info(
+          Paideia
+            .getConfig(Env.paideiaDaoKey)
+            ._config
             .digest
             .map("%02X" format _)
             .mkString
