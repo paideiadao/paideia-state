@@ -44,7 +44,10 @@ class UtilController @Inject() (
           val getContractSig: GetContractSignatureRequest = js.value
           (paideiaActor ? PaideiaStateActor.GetContractSignature(
             contractHash = getContractSig.contractHash,
-            contractAddress = getContractSig.contractAddress
+            contractAddress = getContractSig.contractAddress,
+            contractClass = getContractSig.contractClass,
+            contractDaoKey = getContractSig.contractDaoKey,
+            contractVersion = getContractSig.contractVersion
           ))
             .mapTo[Try[PaideiaContractSignature]]
             .map(paideiaContractSigTry =>

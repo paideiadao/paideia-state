@@ -223,7 +223,10 @@ object PaideiaStateActor {
 
   case class GetContractSignature(
       contractHash: Option[List[Byte]],
-      contractAddress: Option[String]
+      contractAddress: Option[String],
+      contractClass: Option[String],
+      contractDaoKey: Option[String],
+      contractVersion: Option[String]
   )
 
   case class GetDAOProposals(daoKey: String)
@@ -460,24 +463,37 @@ class PaideiaStateActor extends Actor with Logging {
         throw new Exception(
           "Paideia state is currently syncing, try again some time later."
         )
-      Paideia._actorList.values
-        .flatMap(_.contractInstances)
-        .find(p =>
-          g.contractHash match {
-            case None =>
-              g.contractAddress match {
-                case None => false
-                case Some(address) =>
-                  new ErgoTreeContract(p._2.ergoTree, NetworkType.MAINNET)
-                    .toAddress()
-                    .toString()
-                    .equals(address)
+      g.contractClass match {
+        case None =>
+          Paideia._actorList.values
+            .flatMap(_.contractInstances)
+            .find(p =>
+              g.contractHash match {
+                case None =>
+                  g.contractAddress match {
+                    case None => false
+                    case Some(address) =>
+                      new ErgoTreeContract(p._2.ergoTree, NetworkType.MAINNET)
+                        .toAddress()
+                        .toString()
+                        .equals(address)
+                  }
+                case Some(hash) => p._1.sameElements(hash)
               }
-            case Some(hash) => p._1.sameElements(hash)
-          }
-        )
-        .map(_._2.contractSignature)
-        .getOrElse(PaideiaContractSignature(className = "Unknown"))
+            )
+            .map(_._2.contractSignature)
+            .getOrElse(PaideiaContractSignature(className = "Unknown"))
+        case Some(className) =>
+          Paideia
+            .instantiateContractInstance(
+              PaideiaContractSignature(
+                className = className,
+                version = g.contractVersion.get,
+                daoKey = g.contractDaoKey.get
+              )
+            )
+            .contractSignature
+      }
     }
 
   def castVoteBox(c: CastVoteBox): Try[OutBox] =
