@@ -935,53 +935,7 @@ class PaideiaStateActor extends Actor with Logging {
   def handleEvent(e: BlockchainEvent): Try[PaideiaEventResponse] =
     Try {
       syncing = e.syncing
-      val res = Paideia.handleEvent(e.event)
-      if (res.status > 0) {
-        val paideiaConfigBox = Paideia.getBox(
-          new FilterLeaf[String](
-            FilterType.FTEQ,
-            Env.paideiaDaoKey,
-            CompareField.ASSET,
-            0
-          )
-        )(0)
-
-        val paideiaConfigDigest =
-          ADDigest @@ paideiaConfigBox
-            .getRegisters()
-            .get(0)
-            .getValue()
-            .asInstanceOf[AvlTree]
-            .digest
-            .toArray
-
-        logger.logger.info(paideiaConfigDigest.map("%02X" format _).mkString)
-
-        logger.logger.info(
-          Paideia
-            .getConfig(Env.paideiaDaoKey)
-            ._config
-            .digest
-            .map("%02X" format _)
-            .mkString
-        )
-
-        Paideia
-          .getConfig(Env.paideiaDaoKey)
-          ._config
-          .toMap
-
-        logger.logger.info(
-          Paideia
-            .getConfig(Env.paideiaDaoKey)
-            ._config
-            .digest
-            .map("%02X" format _)
-            .mkString
-        )
-
-      }
-      res
+      Paideia.handleEvent(e.event)
     }
 
   def bootstrap(b: Bootstrap): Array[OutBox] = {
