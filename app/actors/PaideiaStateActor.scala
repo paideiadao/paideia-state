@@ -888,7 +888,11 @@ class PaideiaStateActor extends Actor with Logging {
         "Paideia state is currently syncing, try again some time later."
       )
     ProtoDAOProxy(
-      PaideiaContractSignature(daoKey = Env.paideiaDaoKey)
+      Paideia
+        .getConfig(Env.paideiaDaoKey)[PaideiaContractSignature](
+          ConfKeys.im_paideia_contracts_protodaoproxy
+        )
+        .withDaoKey(Env.paideiaDaoKey)
     ).box(
       c.ctx,
       Paideia.getConfig(Env.paideiaDaoKey),
