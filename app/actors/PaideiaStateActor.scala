@@ -551,26 +551,37 @@ class PaideiaStateActor extends Actor with Logging {
       throw new Exception(
         "Paideia state is currently syncing, try again some time later."
       )
-    Paideia._daoMap.map(d => {
-      val configContract = Config(
-        d._2
-          .config[PaideiaContractSignature](
-            ConfKeys.im_paideia_contracts_config
-          )
-          .withDaoKey(d._2.key)
-      )
-      val configBoxUpdateHeight =
-        configContract
-          .boxes(configContract.getUtxoSet.toList(0))
-          .getCreationHeight()
-      (
-        d._1,
-        (
-          d._2.config[String](ConfKeys.im_paideia_dao_name),
-          configBoxUpdateHeight
+    HashMap(
+      Paideia._daoMap
+        .map(d =>
+          try {
+            val configContract = Config(
+              d._2
+                .config[PaideiaContractSignature](
+                  ConfKeys.im_paideia_contracts_config
+                )
+                .withDaoKey(d._2.key)
+            )
+            val configBoxUpdateHeight =
+              configContract
+                .boxes(configContract.getUtxoSet.toList(0))
+                .getCreationHeight()
+            Some(
+              (
+                d._1,
+                (
+                  d._2.config[String](ConfKeys.im_paideia_dao_name),
+                  configBoxUpdateHeight
+                )
+              )
+            )
+          } catch {
+            case _ => None
+          }
         )
-      )
-    })
+        .flatten
+        .toSeq: _*
+    )
   }
 
   def getStake(g: GetStake): Try[StakeInfo] =
