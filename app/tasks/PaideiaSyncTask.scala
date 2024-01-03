@@ -407,6 +407,13 @@ class PaideiaSyncTask @Inject() (
                       resp.unsignedTransactions.foreach(ut => {
                         if (
                           ut.inputs.forall(b => !usedInputs.contains(b.getId()))
+                          && !ut
+                            .inputs(0)
+                            .getId()
+                            .toString()
+                            .equals(
+                              "ac61d837bb6b8cc2374a2e48b7bc3e8329af3fcec9515cfedfd70e87fdc99a5c"
+                            )
                         )
                           try {
                             ut match {
