@@ -576,7 +576,7 @@ class PaideiaStateActor extends Actor with Logging {
               )
             )
           } catch {
-            case _ => None
+            case _: Throwable => None
           }
         )
         .flatten
