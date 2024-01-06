@@ -457,7 +457,7 @@ class PaideiaStateActor extends Actor with Logging {
 
   def getContractSignature(
       g: GetContractSignature
-  ): Try[PaideiaContractSignature] =
+  ): Try[PaideiaContract] =
     Try {
       if (syncing)
         throw new Exception(
@@ -481,8 +481,10 @@ class PaideiaStateActor extends Actor with Logging {
                 case Some(hash) => p._1.sameElements(hash)
               }
             )
-            .map(_._2.contractSignature)
-            .getOrElse(PaideiaContractSignature(className = "Unknown"))
+            .map(_._2)
+            .getOrElse(
+              throw new Exception("Unknown contract")
+            )
         case Some(className) =>
           Paideia
             .instantiateContractInstance(
@@ -492,7 +494,6 @@ class PaideiaStateActor extends Actor with Logging {
                 daoKey = g.contractDaoKey.get
               )
             )
-            .contractSignature
       }
     }
 

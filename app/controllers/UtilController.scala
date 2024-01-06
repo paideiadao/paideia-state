@@ -21,6 +21,7 @@ import scala.util.Success
 import scala.util.Failure
 import models.GetContractSignatureRequest
 import models.ContractSigModel
+import im.paideia.common.contracts.PaideiaContract
 
 @Singleton
 class UtilController @Inject() (
@@ -49,11 +50,11 @@ class UtilController @Inject() (
             contractDaoKey = getContractSig.contractDaoKey,
             contractVersion = getContractSig.contractVersion
           ))
-            .mapTo[Try[PaideiaContractSignature]]
-            .map(paideiaContractSigTry =>
-              paideiaContractSigTry match {
-                case Success(paideiaContractSig) =>
-                  Ok(Json.toJson(ContractSigModel(paideiaContractSig)))
+            .mapTo[Try[PaideiaContract]]
+            .map(paideiaContractTry =>
+              paideiaContractTry match {
+                case Success(paideiaContract) =>
+                  Ok(Json.toJson(ContractSigModel(paideiaContract)))
                 case Failure(exception) => BadRequest(exception.getMessage())
               }
             )
