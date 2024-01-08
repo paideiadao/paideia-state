@@ -59,7 +59,7 @@ class PaideiaSyncTask @Inject() (
     ec: ExecutionContext
 ) extends Logging {
 
-  implicit val timeout: Timeout = 5.seconds
+  implicit val timeout: Timeout = 25.seconds
 
   var currentHeight = Env.conf.getInt("syncStart")
   var syncing = true
@@ -176,7 +176,7 @@ class PaideiaSyncTask @Inject() (
 
               while (currentHeight < nodeHeight) {
                 val fullBlock =
-                  Await.result(blockAwaitable, 5.seconds)
+                  Await.result(blockAwaitable, 20.seconds)
                 if (currentHeight + 1 < nodeHeight)
                   blockAwaitable = Future {
                     val blockHeaderId = datasource
