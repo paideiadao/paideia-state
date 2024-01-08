@@ -66,7 +66,7 @@ class PaideiaSyncTask @Inject() (
   var mempoolTransactions = mutable.HashMap[String, ErgoTransaction]()
 
   actorSystem.scheduler.scheduleWithFixedDelay(
-    initialDelay = 10.seconds,
+    initialDelay = 15.seconds,
     delay = 20.seconds
   )(() => {
 
@@ -99,44 +99,46 @@ class PaideiaSyncTask @Inject() (
               archivedTransactionFiles.foreach((p) => {
                 logger.info(p.toString())
                 val height = p.getFileName().toString().toInt
-                val transactions: Array[ErgoTransaction] =
-                  new Gson().fromJson(
-                    Files.readString(p, StandardCharsets.UTF_8),
-                    classOf[Array[ErgoTransaction]]
-                  )
-                transactions.foreach((et) => {
-                  val event = TransactionEvent(
-                    ctx,
-                    false,
-                    et,
-                    height
-                  )
-                  Await.result(
-                    (paideiaActor ? BlockchainEvent(
-                      event,
-                      syncing
-                    ))
-                      .mapTo[Try[PaideiaEventResponse]]
-                      .map(per =>
-                        per match {
-                          case Success(resp) => {
-                            resp.exceptions
-                              .foreach(e => {
+                if (height >= currentHeight) {
+                  val transactions: Array[ErgoTransaction] =
+                    new Gson().fromJson(
+                      Files.readString(p, StandardCharsets.UTF_8),
+                      classOf[Array[ErgoTransaction]]
+                    )
+                  transactions.foreach((et) => {
+                    val event = TransactionEvent(
+                      ctx,
+                      false,
+                      et,
+                      height
+                    )
+                    Await.result(
+                      (paideiaActor ? BlockchainEvent(
+                        event,
+                        syncing
+                      ))
+                        .mapTo[Try[PaideiaEventResponse]]
+                        .map(per =>
+                          per match {
+                            case Success(resp) => {
+                              resp.exceptions
+                                .foreach(e => {
 
-                                logger.error(e.getMessage(), e)
-                                throw e
+                                  logger.error(e.getMessage(), e)
+                                  // throw e
 
-                              })
+                                })
+                            }
+
+                            case Failure(exception) =>
+                              logger.error(exception.getMessage(), exception)
+
                           }
-
-                          case Failure(exception) =>
-                            logger.error(exception.getMessage(), exception)
-
-                        }
-                      ),
-                    30.seconds
-                  )
-                })
+                        ),
+                      30.seconds
+                    )
+                  })
+                }
                 currentHeight = height + 1
               })
             }
