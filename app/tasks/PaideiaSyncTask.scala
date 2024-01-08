@@ -459,7 +459,7 @@ class PaideiaSyncTask @Inject() (
                       logger.error(exception.getMessage(), exception)
                   }
                 ),
-              5.seconds
+              30.seconds
             )
 
           }
