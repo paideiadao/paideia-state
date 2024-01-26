@@ -449,6 +449,7 @@ class PaideiaSyncTask @Inject() (
                                     } catch {
                                       case e: Exception =>
                                     }
+                                    logger.error(e.getClass().toString())
                                     logger.error(e.getMessage())
                                 }
                             }
