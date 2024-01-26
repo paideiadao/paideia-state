@@ -437,16 +437,18 @@ class PaideiaSyncTask @Inject() (
                                   usedInputs =
                                     usedInputs ++ ut.inputs.map(b => b.getId())
                                 } catch {
-                                  case nec: NotEnoughCoinsForChangeException =>
-                                    logger.error("Not enough coins for change")
                                   case e: Exception =>
-                                    logger.error(
-                                      Json
-                                        .toJson(
-                                          MUnsignedTransaction(ut.unsigned())
-                                        )
-                                        .toString()
-                                    )
+                                    try {
+                                      logger.error(
+                                        Json
+                                          .toJson(
+                                            MUnsignedTransaction(ut.unsigned())
+                                          )
+                                          .toString()
+                                      )
+                                    } catch {
+                                      case e: Exception =>
+                                    }
                                     logger.error(e.getMessage())
                                 }
                             }
