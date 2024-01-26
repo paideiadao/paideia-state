@@ -50,6 +50,7 @@ import java.nio.file.Files
 import java.nio.file.Paths
 import java.nio.charset.StandardCharsets
 import com.google.gson.Gson
+import org.ergoplatform.appkit.InputBoxesSelectionException.NotEnoughCoinsForChangeException
 
 class PaideiaSyncTask @Inject() (
     @Named("paideia-state") paideiaActor: ActorRef,
@@ -436,6 +437,8 @@ class PaideiaSyncTask @Inject() (
                                   usedInputs =
                                     usedInputs ++ ut.inputs.map(b => b.getId())
                                 } catch {
+                                  case nec: NotEnoughCoinsForChangeException =>
+                                    logger.error("Not enough coins for change")
                                   case e: Exception =>
                                     logger.error(
                                       Json
