@@ -42,6 +42,7 @@ import models.DaoConfigValueEntry
 @Singleton
 class DAOController @Inject() (
     @Named("paideia-state") paideiaActor: ActorRef,
+    @Named("error-logging") errorActor: ActorRef,
     val controllerComponents: ControllerComponents
 )(implicit ec: ExecutionContext)
     extends BaseController
@@ -61,8 +62,11 @@ class DAOController @Inject() (
       .mapTo[Try[HashMap[String, (String, Int)]]]
       .map(daoMapTry =>
         daoMapTry match {
-          case Success(daoMap)    => Ok(Json.toJson(daoMap))
-          case Failure(exception) => BadRequest(exception.getMessage())
+          case Success(daoMap) => Ok(Json.toJson(daoMap))
+          case Failure(exception) => {
+            (errorActor ! exception)
+            BadRequest(exception.getMessage())
+          }
         }
       )
   }
@@ -85,7 +89,10 @@ class DAOController @Inject() (
                   )
                 )
               )
-            case Failure(exception) => BadRequest(exception.getMessage())
+            case Failure(exception) => {
+              (errorActor ! exception)
+              BadRequest(exception.getMessage())
+            }
           }
         )
   }
@@ -110,7 +117,10 @@ class DAOController @Inject() (
                   )
                 )
               )
-            case Failure(exception) => BadRequest(exception.getMessage())
+            case Failure(exception) => {
+              (errorActor ! exception)
+              BadRequest(exception.getMessage())
+            }
           }
         )
   }
@@ -127,7 +137,10 @@ class DAOController @Inject() (
                   address
                 )
               )
-            case Failure(exception) => BadRequest(exception.getMessage())
+            case Failure(exception) => {
+              (errorActor ! exception)
+              BadRequest(exception.getMessage())
+            }
           }
         )
   }
@@ -208,9 +221,10 @@ class DAOController @Inject() (
                           )
                         case e: Exception => BadRequest(e.getMessage())
                       }
-                    case Failure(exception) =>
-                      logger.info(exception.getStackTrace().mkString)
+                    case Failure(exception) => {
+                      (errorActor ! exception)
                       BadRequest(exception.getMessage())
+                    }
                   }
                 )
             }

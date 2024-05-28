@@ -1020,10 +1020,28 @@ class PaideiaStateActor extends Actor with Logging {
   }
 
   def initiate = {
-    val daoconfigdir = File("./daoconfigs/").toAbsolute.toDirectory
+    val daoconfigdir = File("daoconfigs").toAbsolute.toDirectory
 
-    if (!daoconfigdir.exists)
+    if (!daoconfigdir.exists) {
       daoconfigdir.createDirectory()
+      logger.info("Created daoconfigdir")
+    }
+
+    val stakingStatesDir = File("stakingStates").toDirectory
+
+    if (!stakingStatesDir.exists) {
+      val res = stakingStatesDir.createDirectory(true, true)
+      stakingStatesDir.createDirectory(true, true)
+      logger.info(f"Created stakingStatesDir: ${res.toString()}")
+    }
+
+    val proposalsDir = File("proposals").toAbsolute.toDirectory
+
+    if (!proposalsDir.exists) {
+      proposalsDir.createDirectory()
+      logger.info("Created proposalsDir")
+    }
+
     val paideiaConfig = DAOConfig(Env.paideiaDaoKey)
     val dummyDaoKey =
       "678441d2c6f7254e6b2f317e45989b42ec3dcd33835b4b03b7c61e9fcc80769c"

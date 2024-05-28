@@ -8,6 +8,10 @@ services:
     env_file: .env
     volumes:
       - ./transaction_archive:/opt/docker/transaction_archive
+      - ./errors:/opt/docker/errors
+      - ./stakingStates:/opt/docker/stakingStates
+      - ./daoconfigs:/opt/docker/daoconfigs
+      - ./proposals:/opt/docker/proposals
     ports:
       - 9123:9000
     networks:

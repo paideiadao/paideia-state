@@ -42,6 +42,7 @@ import org.ergoplatform.appkit.ExplorerAndPoolUnspentBoxesLoader
 @Singleton
 class StakeController @Inject() (
     @Named("paideia-state") paideiaActor: ActorRef,
+    @Named("error-logging") errorActor: ActorRef,
     val controllerComponents: ControllerComponents
 )(implicit ec: ExecutionContext)
     extends BaseController
@@ -63,7 +64,10 @@ class StakeController @Inject() (
         .map(stakeRecordTry =>
           stakeRecordTry match {
             case Success(stakeRecord) => Ok(Json.toJson(stakeRecord))
-            case Failure(exception)   => BadRequest(exception.getMessage())
+            case Failure(exception) => {
+              (errorActor ! exception)
+              BadRequest(exception.getMessage())
+            }
           }
         )
   }
@@ -81,7 +85,10 @@ class StakeController @Inject() (
               .map(stakeRecordTry =>
                 stakeRecordTry match {
                   case Success(stakeRecord) => Ok(Json.toJson(stakeRecord))
-                  case Failure(exception) => BadRequest(exception.getMessage())
+                  case Failure(exception) => {
+                    (errorActor ! exception)
+                    BadRequest(exception.getMessage())
+                  }
                 }
               )
           }
@@ -110,9 +117,10 @@ class StakeController @Inject() (
               )).mapTo[Try[OutBox]]
                 .map(outBoxTry =>
                   outBoxTry match {
-                    case Failure(exception) =>
-                      logger.error(exception.getMessage())
+                    case Failure(exception) => {
+                      (errorActor ! exception)
                       BadRequest(exception.getMessage())
+                    }
                     case Success(outBox) =>
                       try {
                         Ok(
@@ -151,7 +159,10 @@ class StakeController @Inject() (
                           BadRequest(
                             "Not enough erg for change box, try consolidating your utxos to remove this error"
                           )
-                        case e: Exception => BadRequest(e.getMessage())
+                        case e: Exception => {
+                          (errorActor ! e)
+                          BadRequest(e.getMessage())
+                        }
                       }
                   }
                 )
@@ -183,9 +194,10 @@ class StakeController @Inject() (
               )).mapTo[Try[OutBox]]
                 .map(outBoxTry =>
                   outBoxTry match {
-                    case Failure(exception) =>
-                      logger.error(exception.getMessage())
+                    case Failure(exception) => {
+                      (errorActor ! exception)
                       BadRequest(exception.getMessage())
+                    }
                     case Success(outBox) =>
                       try {
                         Ok(
@@ -224,7 +236,10 @@ class StakeController @Inject() (
                           BadRequest(
                             "Not enough erg for change box, try consolidating your utxos to remove this error"
                           )
-                        case e: Exception => BadRequest(e.getMessage())
+                        case e: Exception => {
+                          (errorActor ! e)
+                          BadRequest(e.getMessage())
+                        }
                       }
                   }
                 )
@@ -256,9 +271,10 @@ class StakeController @Inject() (
               )).mapTo[Try[OutBox]]
                 .map(outBoxTry =>
                   outBoxTry match {
-                    case Failure(exception) =>
-                      logger.error(exception.getMessage())
+                    case Failure(exception) => {
+                      (errorActor ! exception)
                       BadRequest(exception.getMessage())
+                    }
                     case Success(outBox) =>
                       try {
                         Ok(
@@ -297,7 +313,10 @@ class StakeController @Inject() (
                           BadRequest(
                             "Not enough erg for change box, try consolidating your utxos to remove this error"
                           )
-                        case e: Exception => BadRequest(e.getMessage())
+                        case e: Exception => {
+                          (errorActor ! e)
+                          BadRequest(e.getMessage())
+                        }
                       }
                   }
                 )

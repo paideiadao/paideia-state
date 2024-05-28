@@ -52,9 +52,20 @@ import java.nio.charset.StandardCharsets
 import com.google.gson.Gson
 import org.ergoplatform.appkit.InputBoxesSelectionException.NotEnoughCoinsForChangeException
 
+class UnsignedTransactionException(
+    val transactionJson: String,
+    val innerException: Exception
+) extends Exception {
+  override def getMessage(): String =
+    innerException.getMessage() ++ transactionJson
+  override def getStackTrace(): Array[StackTraceElement] =
+    innerException.getStackTrace()
+}
+
 class PaideiaSyncTask @Inject() (
     @Named("paideia-state") paideiaActor: ActorRef,
     @Named("paideia-archive") archiveActor: ActorRef,
+    @Named("error-logging") errorActor: ActorRef,
     actorSystem: ActorSystem
 )(implicit
     ec: ExecutionContext
@@ -72,6 +83,19 @@ class PaideiaSyncTask @Inject() (
   )(() => {
 
     try {
+      val daoconfigdir = File("./daoconfigs/").toAbsolute.toDirectory
+      if (!daoconfigdir.exists)
+        daoconfigdir.createDirectory()
+
+      val stakingStatesDir = File("./stakingStates/").toAbsolute.toDirectory
+
+      if (!stakingStatesDir.exists)
+        stakingStatesDir.createDirectory()
+
+      val proposalsDir = File("./proposals/").toAbsolute.toDirectory
+
+      if (!proposalsDir.exists)
+        proposalsDir.createDirectory()
       logger.info(
         s"""Checking blockchain, syncer current height: ${currentHeight.toString}"""
       )
@@ -124,10 +148,7 @@ class PaideiaSyncTask @Inject() (
                             case Success(resp) => {
                               resp.exceptions
                                 .foreach(e => {
-
-                                  logger.error(e.getMessage(), e)
-                                  // throw e
-
+                                  (errorActor ! e)
                                 })
                             }
 
@@ -289,7 +310,7 @@ class PaideiaSyncTask @Inject() (
                         per match {
                           case Success(resp) =>
                             resp.exceptions
-                              .foreach(e => logger.error(e.getMessage(), e))
+                              .foreach(e => (errorActor ! e))
                           case Failure(exception) =>
                             logger.error(exception.getMessage(), exception)
                         }
@@ -313,7 +334,7 @@ class PaideiaSyncTask @Inject() (
                       per match {
                         case Success(resp) =>
                           resp.exceptions
-                            .foreach(e => logger.error(e.getMessage(), e))
+                            .foreach(e => (errorActor ! e))
                         case Failure(exception) =>
                           logger.error(exception.getMessage(), exception)
                       }
@@ -379,7 +400,7 @@ class PaideiaSyncTask @Inject() (
                     per match {
                       case Success(resp) =>
                         resp.exceptions
-                          .foreach(e => logger.error(e.getMessage(), e))
+                          .foreach(e => (errorActor ! e))
                       case Failure(exception) =>
                         logger.error(exception.getMessage(), exception)
                     }
@@ -410,13 +431,6 @@ class PaideiaSyncTask @Inject() (
                       resp.unsignedTransactions.foreach(ut => {
                         if (
                           ut.inputs.forall(b => !usedInputs.contains(b.getId()))
-                          && !ut
-                            .inputs(0)
-                            .getId()
-                            .toString()
-                            .equals(
-                              "ac61d837bb6b8cc2374a2e48b7bc3e8329af3fcec9515cfedfd70e87fdc99a5c"
-                            )
                         )
                           try {
                             ut match {
@@ -439,26 +453,25 @@ class PaideiaSyncTask @Inject() (
                                 } catch {
                                   case e: Exception =>
                                     try {
-                                      logger.error(
+                                      (errorActor ! new UnsignedTransactionException(
                                         Json
                                           .toJson(
                                             MUnsignedTransaction(ut.unsigned())
                                           )
-                                          .toString()
-                                      )
+                                          .toString(),
+                                        e
+                                      ))
                                     } catch {
-                                      case e: Exception =>
+                                      case e: Exception => (errorActor ! e)
                                     }
-                                    logger.error(e.getClass().toString())
-                                    logger.error(e.getMessage())
                                 }
                             }
                           } catch {
-                            case e: Exception => logger.error(e.getMessage(), e)
+                            case e: Exception => (errorActor ! e)
                           }
                       })
                       resp.exceptions.map(e => {
-                        logger.error(e.getMessage(), e)
+                        (errorActor ! e)
                       })
                     }
                     case Failure(exception) =>
@@ -473,7 +486,10 @@ class PaideiaSyncTask @Inject() (
       )
       syncing = false
     } catch {
-      case e: Exception => logger.error(e.getMessage(), e)
+      case e: Exception => {
+        logger.error(e.getStackTrace().map(_.toString()).mkString)
+        logger.error(e.getMessage(), e)
+      }
     }
   })
 }

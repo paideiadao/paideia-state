@@ -13,6 +13,7 @@ target
 .g8
 daoconfigs
 stakingStates
+errors
 target
 proposals
 .env

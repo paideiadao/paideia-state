@@ -9,8 +9,8 @@ lazy val root = (project in file(".")).enablePlugins(PlayScala)
 scalaVersion := "2.12.17"
 
 import com.typesafe.sbt.packager.docker.DockerChmodType
+dockerChmodType := DockerChmodType.UserGroupWriteExecute
 import com.typesafe.sbt.packager.docker.DockerPermissionStrategy
-dockerChmodType := DockerChmodType.Custom("777")
 dockerPermissionStrategy := DockerPermissionStrategy.MultiStage
 dockerUpdateLatest := true
 dockerBaseImage := "openjdk:11"
@@ -18,7 +18,7 @@ dockerBaseImage := "openjdk:11"
 libraryDependencies += guice
 libraryDependencies += "org.scalatestplus.play" %% "scalatestplus-play" % "5.0.0" % Test
 
-libraryDependencies += "im.paideia" %% "paideia-sdk" % "0.0.2+286-30dedaf4-SNAPSHOT"
+libraryDependencies += "im.paideia" %% "paideia-sdk" % "0.0.2+288-87a652b8-SNAPSHOT"
 
 dependencyOverrides ++= Seq(
   "org.scala-lang.modules" %% "scala-parser-combinators" % "1.1.2",
