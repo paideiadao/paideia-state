@@ -23,7 +23,9 @@ class ErrorLoggingActor extends Actor with Logging {
         (
           e.getClass().toString() ++ e
             .getStackTrace()
-            .filter(_.toString().startsWith("im.paideia"))(0)
+            .filter(_.toString().startsWith("im.paideia"))
+            .headOption
+            .getOrElse(e.getStackTrace()(0))
             .toString
         ).getBytes()
       )
