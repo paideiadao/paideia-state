@@ -18,7 +18,7 @@ dockerBaseImage := "openjdk:11"
 libraryDependencies += guice
 libraryDependencies += "org.scalatestplus.play" %% "scalatestplus-play" % "5.0.0" % Test
 
-libraryDependencies += "im.paideia" %% "paideia-sdk" % "0.0.2+288-87a652b8-SNAPSHOT"
+libraryDependencies += "im.paideia" %% "paideia-sdk" % "0.0.2+289-1eb7247b-SNAPSHOT"
 
 dependencyOverrides ++= Seq(
   "org.scala-lang.modules" %% "scala-parser-combinators" % "1.1.2",

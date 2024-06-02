@@ -400,7 +400,7 @@ class PaideiaStateActor extends Actor with Logging {
             pbBox.voteCount.toList,
             proposalBox.getCreationHeight(),
             proposal.votes
-              .getMap(None)
+              .getMap(pbBox.digestOpt)
               .get
               .toMap
               .map((kv: (ErgoId, VoteRecord)) =>
