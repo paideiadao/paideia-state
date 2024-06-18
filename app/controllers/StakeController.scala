@@ -59,17 +59,27 @@ class StakeController @Inject() (
 
   def getStake(daoKey: String, stakeKey: String) = Action.async {
     implicit request: Request[AnyContent] =>
-      (paideiaActor ? GetStake(daoKey, stakeKey))
-        .mapTo[Try[StakeInfo]]
-        .map(stakeRecordTry =>
-          stakeRecordTry match {
-            case Success(stakeRecord) => Ok(Json.toJson(stakeRecord))
-            case Failure(exception) => {
-              (errorActor ! exception)
-              BadRequest(exception.getMessage())
-            }
+      createErgoClient.execute(
+        new java.util.function.Function[BlockchainContext, Future[Result]] {
+          override def apply(_ctx: BlockchainContext): Future[Result] = {
+            (paideiaActor ? GetStake(
+              daoKey,
+              stakeKey,
+              _ctx.asInstanceOf[BlockchainContextImpl]
+            ))
+              .mapTo[Try[StakeInfo]]
+              .map(stakeRecordTry =>
+                stakeRecordTry match {
+                  case Success(stakeRecord) => Ok(Json.toJson(stakeRecord))
+                  case Failure(exception) => {
+                    (errorActor ! exception)
+                    BadRequest(exception.getMessage())
+                  }
+                }
+              )
           }
-        )
+        }
+      )
   }
 
   def getDaoStake(daoKey: String) = Action.async {

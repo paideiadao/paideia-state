@@ -126,7 +126,8 @@ object PaideiaStateActor {
 
   case class GetStake(
       daoKey: String,
-      stakeKey: String
+      stakeKey: String,
+      ctx: BlockchainContextImpl
   )
 
   case class GetDaoStake(
@@ -391,6 +392,10 @@ class PaideiaStateActor extends Actor with Logging {
       proposalContract match {
         case pb: ProposalBasic =>
           val pbBox = ProposalBasicBox.fromInputBox(g.ctx, proposalBox)
+          val voteMap = proposal.votes
+            .getMap(pbBox.digestOpt)
+            .get
+          voteMap.cachedMap = None
           models.ProposalBasic(
             pbBox.proposalIndex,
             pbBox.name,
@@ -399,10 +404,7 @@ class PaideiaStateActor extends Actor with Logging {
             actions,
             pbBox.voteCount.toList,
             proposalBox.getCreationHeight(),
-            proposal.votes
-              .getMap(pbBox.digestOpt)
-              .get
-              .toMap
+            voteMap.toMap
               .map((kv: (ErgoId, VoteRecord)) =>
                 ProposalVote(kv._1.toString(), kv._2.votes.toList)
               )
@@ -596,16 +598,31 @@ class PaideiaStateActor extends Actor with Logging {
         .getConfig(g.daoKey)
         .getArray[Object](ConfKeys.im_paideia_staking_profit_tokenids)
         .map(o => new ErgoId(o.asInstanceOf[Coll[Byte]].toArray).toString())
-      StakeInfo(
+      val stakingStateContract = Paideia.instantiateContractInstance(
+        Paideia
+          .getConfig(g.daoKey)(ConfKeys.im_paideia_contracts_staking_state)
+          .asInstanceOf[PaideiaContractSignature]
+          .withDaoKey(g.daoKey)
+      )
+      val latestUtxo = StakeStateBox.fromInputBox(
+        g.ctx,
+        stakingStateContract.boxes(
+          stakingStateContract.getUtxoSet.toList(0)
+        )
+      )
+      val stakeMap =
         TotalStakingState(g.daoKey).currentStakingState.stakeRecords
-          .getMap(None)
+          .getMap(Some(latestUtxo.stateDigest))
           .get
-          .toMap(key),
+      stakeMap.cachedMap = None
+      val partMap =
         TotalStakingState(g.daoKey).currentStakingState.participationRecords
-          .getMap(None)
+          .getMap(Some(latestUtxo.participationDigest))
           .get
-          .toMap
-          .get(key),
+      partMap.cachedMap = None
+      StakeInfo(
+        stakeMap.toMap(key),
+        partMap.toMap.get(key),
         profitTokenIds.toList
       )
     }
