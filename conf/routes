@@ -14,6 +14,7 @@ GET     /dao/:daoKey/proposals      controllers.DAOController.getDAOProposals(da
 POST    /stake                      controllers.StakeController.stake
 GET     /stake/:daoKey              controllers.StakeController.getDaoStake(daoKey: String)
 GET     /stake/:daoKey/:stakeKey    controllers.StakeController.getStake(daoKey: String, stakeKey: String)
+POST    /stake/:daoKey              controllers.StakeController.getStakes(daoKey: String)
 POST    /stake/add                  controllers.StakeController.addStake
 POST    /stake/remove               controllers.StakeController.unstake
 

@@ -38,6 +38,10 @@ import play.api.Logging
 import org.ergoplatform.explorer.client.model
 import im.paideia.staking.StakeRecord
 import org.ergoplatform.appkit.ExplorerAndPoolUnspentBoxesLoader
+import org.ergoplatform.appkit.impl.NodeDataSourceImpl
+import org.ergoplatform.restapi.client.ApiClient
+import okhttp3.OkHttpClient
+import models.GetStakesRequest
 
 @Singleton
 class StakeController @Inject() (
@@ -64,13 +68,13 @@ class StakeController @Inject() (
           override def apply(_ctx: BlockchainContext): Future[Result] = {
             (paideiaActor ? GetStake(
               daoKey,
-              stakeKey,
+              List(stakeKey),
               _ctx.asInstanceOf[BlockchainContextImpl]
             ))
-              .mapTo[Try[StakeInfo]]
+              .mapTo[Try[List[StakeInfo]]]
               .map(stakeRecordTry =>
                 stakeRecordTry match {
-                  case Success(stakeRecord) => Ok(Json.toJson(stakeRecord))
+                  case Success(stakeRecord) => Ok(Json.toJson(stakeRecord(0)))
                   case Failure(exception) => {
                     (errorActor ! exception)
                     BadRequest(exception.getMessage())
@@ -80,6 +84,40 @@ class StakeController @Inject() (
           }
         }
       )
+  }
+
+  def getStakes(daoKey: String) = Action.async {
+    implicit request: Request[AnyContent] =>
+      val content = request.body
+      val jsonObject = content.asJson
+      val stakeRequest = Json.fromJson[GetStakesRequest](jsonObject.get)
+      stakeRequest match {
+        case je: JsError => Future(BadRequest(JsError.toJson(je)))
+        case js: JsSuccess[GetStakesRequest] =>
+          val stakeKeys: GetStakesRequest = js.value
+          createErgoClient.execute(
+            new java.util.function.Function[BlockchainContext, Future[Result]] {
+              override def apply(_ctx: BlockchainContext): Future[Result] = {
+                (paideiaActor ? GetStake(
+                  daoKey,
+                  stakeKeys.potentialKeys,
+                  _ctx.asInstanceOf[BlockchainContextImpl]
+                ))
+                  .mapTo[Try[List[StakeInfo]]]
+                  .map(stakeRecordTry =>
+                    stakeRecordTry match {
+                      case Success(stakeRecord) =>
+                        Ok(Json.toJson(stakeRecord))
+                      case Failure(exception) => {
+                        (errorActor ! exception)
+                        BadRequest(exception.getMessage())
+                      }
+                    }
+                  )
+              }
+            }
+          )
+      }
   }
 
   def getDaoStake(daoKey: String) = Action.async {

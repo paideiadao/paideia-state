@@ -126,7 +126,7 @@ object PaideiaStateActor {
 
   case class GetStake(
       daoKey: String,
-      stakeKey: String,
+      stakeKeys: List[String],
       ctx: BlockchainContextImpl
   )
 
@@ -195,6 +195,7 @@ object PaideiaStateActor {
   )
 
   case class StakeInfo(
+      stakeKey: String,
       stakeRecord: StakeRecord,
       participationRecord: Option[ParticipationRecord],
       profitTokens: List[String]
@@ -587,13 +588,13 @@ class PaideiaStateActor extends Actor with Logging {
     )
   }
 
-  def getStake(g: GetStake): Try[StakeInfo] =
+  def getStake(g: GetStake): Try[List[StakeInfo]] =
     Try {
       if (syncing)
         throw new Exception(
           "Paideia state is currently syncing, try again some time later."
         )
-      val key = ErgoId.create(g.stakeKey)
+
       val profitTokenIds = Paideia
         .getConfig(g.daoKey)
         .getArray[Object](ConfKeys.im_paideia_staking_profit_tokenids)
@@ -620,11 +621,22 @@ class PaideiaStateActor extends Actor with Logging {
           .getMap(Some(latestUtxo.participationDigest))
           .get
       partMap.cachedMap = None
-      StakeInfo(
-        stakeMap.toMap(key),
-        partMap.toMap.get(key),
-        profitTokenIds.toList
-      )
+      g.stakeKeys.flatMap(stakeKey => {
+        try {
+          val key = ErgoId.create(stakeKey)
+          Some(
+            StakeInfo(
+              key.toString(),
+              stakeMap.toMap(key),
+              partMap.toMap.get(key),
+              profitTokenIds.toList
+            )
+          )
+        } catch {
+          case _: Throwable => None
+        }
+      })
+
     }
 
   def getDaoStake(g: GetDaoStake): Try[DaoStakeInfo] =
