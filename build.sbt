@@ -32,7 +32,8 @@ dependencyOverrides ++= Seq(
 
 libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-slf4j" % "2.5.19",
-  "ch.qos.logback" % "logback-classic" % "1.2.3"
+  "ch.qos.logback" % "logback-classic" % "1.2.3",
+  "org.zeromq" % "jeromq" % "0.5.3"
 )
 
 resolvers ++= Seq(
