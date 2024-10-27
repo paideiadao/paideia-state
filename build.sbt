@@ -17,13 +17,11 @@ dockerBaseImage := "openjdk:11"
 
 libraryDependencies += guice
 libraryDependencies += "org.scalatestplus.play" %% "scalatestplus-play" % "5.0.0" % Test
-
-libraryDependencies += "im.paideia" %% "paideia-sdk" % "0.0.2+289-1eb7247b-SNAPSHOT"
+libraryDependencies += "im.paideia" %% "paideia-sdk" % "1.0.0-rc3+6-47bd0cf7-SNAPSHOT"
 
 dependencyOverrides ++= Seq(
   "org.scala-lang.modules" %% "scala-parser-combinators" % "1.1.2",
-  "org.slf4j" % "slf4j-api" % "1.7.36",
-  "org.ergoplatform" % "ergo-appkit_2.12" % "master-62c8e0dd-SNAPSHOT"
+  "org.slf4j" % "slf4j-api" % "1.7.36"
 )
 
 // excludeDependencies ++= Seq(

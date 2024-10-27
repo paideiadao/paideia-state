@@ -38,6 +38,9 @@ import org.ergoplatform.appkit.ErgoValue
 import org.ergoplatform.sdk.ErgoToken
 import models.CastVoteRequest
 import models.Proposal
+import im.paideia.common.transactions.PaideiaTransaction
+import org.ergoplatform.sdk.ExtendedInputBox
+import org.ergoplatform.appkit.impl.InputBoxImpl
 
 @Singleton
 class ProposalController @Inject() (
@@ -101,38 +104,28 @@ class ProposalController @Inject() (
         createErgoClient.execute(
           new java.util.function.Function[BlockchainContext, Future[Result]] {
             override def apply(_ctx: BlockchainContext): Future[Result] = {
-              (paideiaActor ? CastVoteBox(
+              (paideiaActor ? CastVoteTransactionRequest(
                 _ctx.asInstanceOf[BlockchainContextImpl],
                 castVote.daoKey,
                 castVote.stakeKey,
                 castVote.proposalIndex,
                 castVote.votes,
                 castVote.userAddress
-              )).mapTo[Try[OutBox]]
+              )).mapTo[Try[PaideiaTransaction]]
                 .map(outBoxTry =>
                   outBoxTry match {
                     case Failure(exception) => {
                       (errorActor ! exception)
                       BadRequest(exception.getMessage())
                     }
-                    case Success(outBox) =>
+                    case Success(paideiaTransaction) =>
                       try {
                         Ok(
                           Json.toJson(
                             MUnsignedTransaction(
-                              BoxOperations
-                                .createForSenders(
-                                  castVote.userAddresses
-                                    .map(addr => Address.create(addr))
-                                    .toList
-                                    .asJava,
-                                  _ctx
-                                )
-                                .withAmountToSpend(outBox.getValue())
-                                .withTokensToSpend(outBox.getTokens())
-                                .buildTxWithDefaultInputs(tb =>
-                                  tb.addOutputs(outBox)
-                                )
+                              paideiaTransaction,
+                              castVote.userAddresses,
+                              Env.conf.getLong("uiFeeCastVote")
                             )
                           )
                         )
@@ -176,7 +169,7 @@ class ProposalController @Inject() (
         createErgoClient.execute(
           new java.util.function.Function[BlockchainContext, Future[Result]] {
             override def apply(_ctx: BlockchainContext): Future[Result] = {
-              (paideiaActor ? CreateProposalBox(
+              (paideiaActor ? CreateProposalTransactionRequest(
                 _ctx.asInstanceOf[BlockchainContextImpl],
                 createProposal.daoKey,
                 createProposal.name,
@@ -207,31 +200,21 @@ class ProposalController @Inject() (
                 ),
                 createProposal.voteKey,
                 createProposal.userAddress
-              )).mapTo[Try[OutBox]]
+              )).mapTo[Try[PaideiaTransaction]]
                 .map(outBoxTry =>
                   outBoxTry match {
                     case Failure(exception) => {
                       (errorActor ! exception)
                       BadRequest(exception.getMessage())
                     }
-                    case Success(outBox) =>
+                    case Success(paideiaTransaction) =>
                       try {
                         Ok(
                           Json.toJson(
                             MUnsignedTransaction(
-                              BoxOperations
-                                .createForSenders(
-                                  createProposal.userAddresses
-                                    .map(addr => Address.create(addr))
-                                    .toList
-                                    .asJava,
-                                  _ctx
-                                )
-                                .withAmountToSpend(outBox.getValue())
-                                .withTokensToSpend(outBox.getTokens())
-                                .buildTxWithDefaultInputs(tb =>
-                                  tb.addOutputs(outBox)
-                                )
+                              paideiaTransaction,
+                              createProposal.userAddresses,
+                              Env.conf.getLong("uiFeeCreateProposal")
                             )
                           )
                         )

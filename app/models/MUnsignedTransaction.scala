@@ -8,9 +8,18 @@ import org.ergoplatform.sdk.ExtendedInputBox
 import org.ergoplatform.appkit.impl.UnsignedTransactionImpl
 import org.ergoplatform.appkit.ErgoValue
 import scorex.util.encode.Base16
-import sigmastate.serialization.ValueSerializer
-import sigmastate.Values
-import sigmastate.SType
+import sigma.serialization.ValueSerializer
+import org.ergoplatform.appkit.impl.BlockchainContextImpl
+import im.paideia.common.transactions.PaideiaTransaction
+import org.ergoplatform.appkit.Address
+import org.ergoplatform.appkit.BoxOperations
+import org.ergoplatform.appkit.ExplorerAndPoolUnspentBoxesLoader
+import scorex.util.ModifierId
+import org.ergoplatform.sdk.ErgoToken
+import org.ergoplatform.sdk.ErgoId
+import im.paideia.util.Env
+import org.ergoplatform.ErgoAddress
+import org.ergoplatform.appkit.OutBox
 
 final case class MUnsignedTransaction(
     inputs: Array[MInput],
@@ -21,6 +30,64 @@ final case class MUnsignedTransaction(
 object MUnsignedTransaction {
 
   implicit val munsignedTransactionJson = Json.format[MUnsignedTransaction]
+
+  def uiFeeBox(ctx: BlockchainContextImpl, uiFee: Long): OutBox = {
+    ctx
+      .newTxBuilder()
+      .outBoxBuilder()
+      .contract(
+        Address.create(Env.conf.getString("uiFeeAddress")).toErgoContract()
+      )
+      .value(uiFee)
+      .build()
+  }
+
+  def apply(
+      paideiaTransaction: PaideiaTransaction,
+      userAddresses: Array[String],
+      uiFee: Long
+  ): MUnsignedTransaction = {
+    if (uiFee > 0L) {
+      paideiaTransaction.outputs = paideiaTransaction.outputs ++ List(
+        uiFeeBox(paideiaTransaction.ctx, uiFee)
+      )
+    }
+    apply(paideiaTransaction, userAddresses)
+  }
+
+  def apply(
+      paideiaTransaction: PaideiaTransaction,
+      userAddresses: Array[String]
+  ): MUnsignedTransaction = {
+    val userFundsNeeded = paideiaTransaction.fundsMissing()
+    paideiaTransaction.minimizeChangeBox = false
+    paideiaTransaction.userInputs = BoxOperations
+      .createForSenders(
+        userAddresses
+          .map(addr => Address.create(addr))
+          .toList
+          .asJava,
+        paideiaTransaction.ctx
+      )
+      .withInputBoxesLoader(
+        new ExplorerAndPoolUnspentBoxesLoader()
+          .withAllowChainedTx(true)
+      )
+      .withAmountToSpend(userFundsNeeded._1)
+      .withTokensToSpend(
+        userFundsNeeded._2
+          .map((t: (ModifierId, Long)) =>
+            ErgoToken(new ErgoId(t._1.toBytes), t._2)
+          )
+          .toList
+          .asJava
+      )
+      .loadTop()
+      .asScala
+      .toList
+
+    MUnsignedTransaction(paideiaTransaction.unsigned())
+  }
 
   def apply(unsigned: UnsignedTransaction): MUnsignedTransaction = {
     val inputs = unsigned
@@ -34,13 +101,7 @@ object MUnsignedTransaction {
       )
       .map(inp =>
         MInput(
-          inp._2.extension.values.toMap
-            .map(kv =>
-              (
-                kv._1.toString(),
-                Base16.encode(ValueSerializer.serialize(kv._2))
-              )
-            ),
+          inp._2.extension,
           inp._1.getId().toString(),
           inp._1.getValue().toString(),
           inp._1.getErgoTree().bytesHex,
@@ -75,9 +136,7 @@ object MUnsignedTransaction {
         MInput(
           inp
             .asInstanceOf[InputBoxImpl]
-            .getExtension()
-            .values
-            .map(kv => (kv._1.toString(), kv._2.toString())),
+            .getExtension(),
           inp.getId().toString(),
           inp.getValue().toString(),
           inp.getErgoTree().bytesHex,

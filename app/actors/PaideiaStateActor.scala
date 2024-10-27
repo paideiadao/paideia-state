@@ -29,10 +29,8 @@ import scala.util.Try
 import scala.util.Failure
 import scala.util.Success
 import play.api.Logging
-import special.sigma.Box
 import org.ergoplatform.sdk.ErgoToken
 import org.ergoplatform.appkit.ErgoValue
-import sigmastate.eval.CostingBox
 import org.ergoplatform.appkit.impl.InputBoxImpl
 import im.paideia.util.Util
 import java.nio.charset.StandardCharsets
@@ -43,15 +41,12 @@ import im.paideia.common.filtering.FilterLeaf
 import im.paideia.common.filtering.FilterType
 import im.paideia.common.filtering.CompareField
 import scorex.crypto.authds.ADDigest
-import special.sigma.AvlTree
-import sigmastate.eval.Colls
 import im.paideia.common.filtering.FilterNode
 import im.paideia.governance.VoteRecord
 import im.paideia.staking.boxes.StakeStateBox
 import im.paideia.DAOConfigValueSerializer
 import play.api.libs.json.Json
 import im.paideia.staking.ParticipationRecord
-import special.collection.Coll
 import org.ergoplatform.appkit.ErgoContract
 import org.ergoplatform.appkit.impl.ErgoTreeContract
 import org.ergoplatform.appkit.NetworkType
@@ -66,6 +61,16 @@ import scala.reflect.io.File
 import im.paideia.DAOConfigValueDeserializer
 import models.DaoConfigValueEntry
 import models.ProposalVote
+import sigma.Colls
+import sigma.Coll
+import sigma.Box
+import sigma.data.CBox
+import im.paideia.staking.transactions.StakeTransaction
+import im.paideia.common.transactions.PaideiaTransaction
+import im.paideia.staking.transactions.AddStakeTransaction
+import im.paideia.governance.transactions.CastVoteTransaction
+import im.paideia.governance.transactions.CreateProposalTransaction
+import im.paideia.staking.transactions.UnstakeTransaction
 
 object PaideiaStateActor {
   def props = Props[PaideiaStateActor]
@@ -96,14 +101,14 @@ object PaideiaStateActor {
       participationWeight: Byte
   )
 
-  case class StakeBox(
+  case class StakeTransactionRequest(
       ctx: BlockchainContextImpl,
       daoKey: String,
       userAddress: String,
       stakeAmount: Long
   )
 
-  case class AddStakeBox(
+  case class AddStakeTransactionRequest(
       ctx: BlockchainContextImpl,
       daoKey: String,
       stakeKey: String,
@@ -111,7 +116,7 @@ object PaideiaStateActor {
       addStakeAmount: Long
   )
 
-  case class UnstakeBox(
+  case class UnstakeTransactionRequest(
       ctx: BlockchainContextImpl,
       daoKey: String,
       stakeKey: String,
@@ -142,7 +147,7 @@ object PaideiaStateActor {
 
   trait ProposalAction
 
-  case class CreateProposalBox(
+  case class CreateProposalTransactionRequest(
       ctx: BlockchainContextImpl,
       daoKey: String,
       name: String,
@@ -185,7 +190,7 @@ object PaideiaStateActor {
       daoKey: String
   )
 
-  case class CastVoteBox(
+  case class CastVoteTransactionRequest(
       ctx: BlockchainContextImpl,
       daoKey: String,
       stakeKey: String,
@@ -197,8 +202,7 @@ object PaideiaStateActor {
   case class StakeInfo(
       stakeKey: String,
       stakeRecord: StakeRecord,
-      participationRecord: Option[ParticipationRecord],
-      profitTokens: List[String]
+      participationRecord: Option[ParticipationRecord]
   )
 
   object StakeInfo {
@@ -214,7 +218,6 @@ object PaideiaStateActor {
       voted: Long,
       votedTotal: Long,
       nextEmission: Long,
-      profitTokens: List[String],
       emission: Long,
       cycleLength: Long
   )
@@ -248,22 +251,22 @@ class PaideiaStateActor extends Actor with Logging {
   var syncing = true
 
   def receive = {
-    case c: CreateDAOBox         => sender() ! createDAOBox(c)
-    case s: StakeBox             => sender() ! stakeBox(s)
-    case a: AddStakeBox          => sender() ! addStakeBox(a)
-    case u: UnstakeBox           => sender() ! unstakeBox(u)
-    case g: GetStake             => sender() ! getStake(g)
-    case g: GetDaoStake          => sender() ! getDaoStake(g)
-    case e: BlockchainEvent      => sender() ! handleEvent(e)
-    case p: CreateProposalBox    => sender() ! createProposal(p)
-    case b: Bootstrap            => sender() ! bootstrap(b)
-    case g: GetAllDAOs           => sender() ! getAllDAOs(g)
-    case g: GetDAOConfig         => sender() ! getDAOConfig(g)
-    case g: GetDAOTreasury       => sender() ! getDAOTreasury(g)
-    case c: CastVoteBox          => sender() ! castVoteBox(c)
-    case g: GetContractSignature => sender() ! getContractSignature(g)
-    case g: GetDAOProposals      => sender() ! getDAOProposals(g)
-    case g: GetDAOProposal       => sender() ! getDAOProposal(g)
+    case c: CreateDAOBox               => sender() ! createDAOBox(c)
+    case s: StakeTransactionRequest    => sender() ! stakeTransaction(s)
+    case a: AddStakeTransactionRequest => sender() ! addStakeTransaction(a)
+    case u: UnstakeTransactionRequest  => sender() ! unstakeTransaction(u)
+    case g: GetStake                   => sender() ! getStake(g)
+    case g: GetDaoStake                => sender() ! getDaoStake(g)
+    case e: BlockchainEvent            => sender() ! handleEvent(e)
+    case p: CreateProposalTransactionRequest => sender() ! createProposal(p)
+    case b: Bootstrap                        => sender() ! bootstrap(b)
+    case g: GetAllDAOs                       => sender() ! getAllDAOs(g)
+    case g: GetDAOConfig                     => sender() ! getDAOConfig(g)
+    case g: GetDAOTreasury                   => sender() ! getDAOTreasury(g)
+    case c: CastVoteTransactionRequest => sender() ! castVoteTransaction(c)
+    case g: GetContractSignature       => sender() ! getContractSignature(g)
+    case g: GetDAOProposals            => sender() ! getDAOProposals(g)
+    case g: GetDAOProposal             => sender() ! getDAOProposal(g)
   }
 
   def getDAOProposal(g: GetDAOProposal): Try[Proposal] =
@@ -500,21 +503,24 @@ class PaideiaStateActor extends Actor with Logging {
       }
     }
 
-  def castVoteBox(c: CastVoteBox): Try[OutBox] =
+  def castVoteTransaction(
+      c: CastVoteTransactionRequest
+  ): Try[PaideiaTransaction] =
     Try {
       if (syncing)
         throw new Exception(
           "Paideia state is currently syncing, try again some time later."
         )
-      CastVote(PaideiaContractSignature(daoKey = c.daoKey))
-        .box(
-          c.ctx,
-          c.stakeKey,
-          c.proposalIndex,
-          VoteRecord(c.votes),
-          Address.create(c.userAddress)
-        )
-        .outBox
+      val userAddress = Address.create(c.userAddress)
+      CastVoteTransaction(
+        c.ctx,
+        c.proposalIndex,
+        c.stakeKey,
+        VoteRecord(c.votes),
+        Paideia.getDAO(c.daoKey),
+        userAddress,
+        userAddress
+      )
     }
 
   def getDAOTreasury(g: GetDAOTreasury): Try[String] =
@@ -523,7 +529,7 @@ class PaideiaStateActor extends Actor with Logging {
         throw new Exception(
           "Paideia state is currently syncing, try again some time later."
         )
-      Treasury(PaideiaContractSignature(daoKey = g.daoKey)).contract
+      Treasury(ConfKeys.im_paideia_contracts_treasury, g.daoKey).contract
         .toAddress()
         .toString()
     }
@@ -595,10 +601,6 @@ class PaideiaStateActor extends Actor with Logging {
           "Paideia state is currently syncing, try again some time later."
         )
 
-      val profitTokenIds = Paideia
-        .getConfig(g.daoKey)
-        .getArray[Object](ConfKeys.im_paideia_staking_profit_tokenids)
-        .map(o => new ErgoId(o.asInstanceOf[Coll[Byte]].toArray).toString())
       val stakingStateContract = Paideia.instantiateContractInstance(
         Paideia
           .getConfig(g.daoKey)(ConfKeys.im_paideia_contracts_staking_state)
@@ -628,8 +630,7 @@ class PaideiaStateActor extends Actor with Logging {
             StakeInfo(
               key.toString(),
               stakeMap.toMap(key),
-              partMap.toMap.get(key),
-              profitTokenIds.toList
+              partMap.toMap.get(key)
             )
           )
         } catch {
@@ -645,10 +646,7 @@ class PaideiaStateActor extends Actor with Logging {
         throw new Exception(
           "Paideia state is currently syncing, try again some time later."
         )
-      val profitTokenIds = Paideia
-        .getConfig(g.daoKey)
-        .getArray[Object](ConfKeys.im_paideia_staking_profit_tokenids)
-        .map(o => new ErgoId(o.asInstanceOf[Coll[Byte]].toArray).toString())
+
       val emission: Long =
         Paideia.getConfig(g.daoKey)(ConfKeys.im_paideia_staking_emission_amount)
       val cycleLength: Long =
@@ -676,7 +674,6 @@ class PaideiaStateActor extends Actor with Logging {
         stakeStateBox.voted,
         stakeStateBox.votedTotal,
         stakeStateBox.nextEmission,
-        profitTokenIds.toList,
         emission,
         cycleLength
       )
@@ -699,7 +696,7 @@ class PaideiaStateActor extends Actor with Logging {
     if (registers.size > 0)
       boxBuilder.registers(registers: _*)
 
-    CostingBox(
+    CBox(
       boxBuilder
         .build()
         .convertToInputWith(Util.randomKey, 0.toShort)
@@ -708,40 +705,33 @@ class PaideiaStateActor extends Actor with Logging {
     )
   }
 
-  def createProposal(c: CreateProposalBox): Try[OutBox] = Try {
+  def createProposal(
+      c: CreateProposalTransactionRequest
+  ): Try[PaideiaTransaction] = Try {
     if (syncing)
       throw new Exception(
         "Paideia state is currently syncing, try again some time later."
       )
-    val proposalIndex = Long.MaxValue - Paideia
-      .getBox(
-        new FilterNode(
-          FilterType.FTALL,
-          List(
-            new FilterLeaf(
-              FilterType.FTEQ,
-              Env.daoTokenId,
-              CompareField.ASSET,
-              0
-            ),
-            new FilterLeaf(
-              FilterType.FTEQ,
-              ErgoId.create(c.daoKey).getBytes.toIterable,
-              CompareField.REGISTER,
-              0
-            )
-          )
-        )
-      )(0)
+    val dao = Paideia.getDAO(c.daoKey)
+    val originContract = DAOOrigin
+      .contractFromConfig[DAOOrigin](
+        ConfKeys.im_paideia_contracts_dao,
+        dao.key,
+        None
+      )
+    val proposalIndex = Long.MaxValue - originContract
+      .boxes(originContract.getUtxoSet.toList(0))
       .getTokens
       .get(1)
       .getValue
     val proposal =
-      Paideia.getDAO(c.daoKey).newProposal(proposalIndex.toInt, c.name)
+      dao.newProposal(proposalIndex.toInt, c.name)
     val actions = c.actions.map(a =>
       a match {
         case s: SendFundsAction =>
-          ActionSendFundsBasic(PaideiaContractSignature(daoKey = c.daoKey))
+          ActionSendFundsBasic(
+            PaideiaContractSignature(version = "1.0.0", daoKey = c.daoKey)
+          )
             .box(
               c.ctx,
               proposal.proposalIndex,
@@ -862,7 +852,9 @@ class PaideiaStateActor extends Actor with Logging {
                   )
               )
           })
-          ActionUpdateConfig(PaideiaContractSignature(daoKey = c.daoKey))
+          ActionUpdateConfig(
+            PaideiaContractSignature(version = "1.0.0", daoKey = c.daoKey)
+          )
             .box(
               c.ctx,
               proposal.proposalIndex,
@@ -893,7 +885,9 @@ class PaideiaStateActor extends Actor with Logging {
       }
     )
     val proposalBox =
-      ProposalBasic(PaideiaContractSignature(daoKey = c.daoKey))
+      ProposalBasic(
+        PaideiaContractSignature(version = "1.0.0", daoKey = c.daoKey)
+      )
         .box(
           c.ctx,
           c.name,
@@ -904,23 +898,16 @@ class PaideiaStateActor extends Actor with Logging {
           -1.toByte
         )
         .box
-    logger.info(proposalBox.toString())
-    val box = CreateProposal(PaideiaContractSignature(daoKey = c.daoKey))
-      .box(
-        c.ctx,
-        c.name,
-        proposalBox,
-        actions,
-        c.voteKey,
-        Address.create(c.userAddress)
-      )
-
-    val serialized = box.registers(1).toHex()
-    logger.info(serialized)
-    val deserialized = ErgoValue.fromHex(serialized)
-    logger.info(deserialized.toString())
-
-    box.outBox
+    val userAddress = Address.create(c.userAddress)
+    CreateProposalTransaction(
+      c.ctx,
+      c.daoKey,
+      proposalBox,
+      actions,
+      c.voteKey,
+      userAddress,
+      userAddress
+    )
   }
 
   def createDAOBox(c: CreateDAOBox): Try[OutBox] = Try {
@@ -962,35 +949,52 @@ class PaideiaStateActor extends Actor with Logging {
     ).outBox
   }
 
-  def stakeBox(s: StakeBox): Try[OutBox] = Try {
+  def stakeTransaction(s: StakeTransactionRequest): Try[PaideiaTransaction] =
+    Try {
+      if (syncing)
+        throw new Exception(
+          "Paideia state is currently syncing, try again some time later."
+        )
+      val userAddress = Address.create(s.userAddress)
+      StakeTransaction(s.ctx, s.stakeAmount, userAddress, userAddress, s.daoKey)
+    }
+
+  def addStakeTransaction(
+      a: AddStakeTransactionRequest
+  ): Try[PaideiaTransaction] = Try {
     if (syncing)
       throw new Exception(
         "Paideia state is currently syncing, try again some time later."
       )
-    StakeProxy(
-      PaideiaContractSignature(daoKey = s.daoKey)
-    ).box(s.ctx, s.userAddress, s.stakeAmount).outBox
+    val userAddress = Address.create(a.userAddress)
+    AddStakeTransaction(
+      a.ctx,
+      a.addStakeAmount,
+      a.stakeKey,
+      userAddress,
+      userAddress,
+      a.daoKey,
+      null
+    )
   }
 
-  def addStakeBox(a: AddStakeBox): Try[OutBox] = Try {
+  def unstakeTransaction(
+      u: UnstakeTransactionRequest
+  ): Try[PaideiaTransaction] = Try {
     if (syncing)
       throw new Exception(
         "Paideia state is currently syncing, try again some time later."
       )
-    AddStakeProxy(
-      PaideiaContractSignature(daoKey = a.daoKey)
-    ).box(a.ctx, a.stakeKey, a.addStakeAmount, a.userAddress).outBox
-  }
-
-  def unstakeBox(u: UnstakeBox): Try[OutBox] = Try {
-    if (syncing)
-      throw new Exception(
-        "Paideia state is currently syncing, try again some time later."
-      )
-
-    UnstakeProxy(PaideiaContractSignature(daoKey = u.daoKey))
-      .box(u.ctx, u.stakeKey, u.newStakeRecord, u.userAddress)
-      .outBox
+    val userAddress = Address.create(u.userAddress)
+    UnstakeTransaction(
+      u.ctx,
+      u.stakeKey,
+      Colls.fromArray(u.newStakeRecord.toBytes),
+      userAddress,
+      userAddress,
+      u.daoKey,
+      null
+    )
   }
 
   def handleEvent(e: BlockchainEvent): Try[PaideiaEventResponse] =
@@ -1001,14 +1005,16 @@ class PaideiaStateActor extends Actor with Logging {
 
   def bootstrap(b: Bootstrap): Array[OutBox] = {
     val stakeBox =
-      StakeState(PaideiaContractSignature(daoKey = Env.paideiaDaoKey))
+      StakeState(ConfKeys.im_paideia_contracts_staking_state, Env.paideiaDaoKey)
         .emptyBox(b.ctx, Paideia.getDAO(Env.paideiaDaoKey), b.stakepoolSize)
-    stakeBox.value = 2000000L
     Array(
-      PaideiaOrigin(PaideiaContractSignature(daoKey = Env.paideiaDaoKey))
+      PaideiaOrigin(
+        ConfKeys.im_paideia_contracts_paideia_origin,
+        Env.paideiaDaoKey
+      )
         .box(b.ctx, Paideia.getConfig(Env.paideiaDaoKey), Long.MaxValue - 1L)
         .outBox,
-      DAOOrigin(PaideiaContractSignature(daoKey = Env.paideiaDaoKey))
+      DAOOrigin(ConfKeys.im_paideia_contracts_dao, Env.paideiaDaoKey)
         .box(
           b.ctx,
           Paideia.getDAO(Env.paideiaDaoKey),
@@ -1016,32 +1022,44 @@ class PaideiaStateActor extends Actor with Logging {
           Long.MaxValue
         )
         .outBox,
-      Config(PaideiaContractSignature(daoKey = Env.paideiaDaoKey))
+      Config(ConfKeys.im_paideia_contracts_config, Env.paideiaDaoKey)
         .box(
           b.ctx,
           Paideia.getDAO(Env.paideiaDaoKey),
           Some(Paideia.getConfig(Env.paideiaDaoKey)._config.digest)
         )
         .outBox,
-      ChangeStake(PaideiaContractSignature(daoKey = Env.paideiaDaoKey))
+      ChangeStake(
+        ConfKeys.im_paideia_contracts_staking_changestake,
+        Env.paideiaDaoKey
+      )
         .box(b.ctx)
         .outBox,
-      Stake(PaideiaContractSignature(daoKey = Env.paideiaDaoKey))
+      Stake(ConfKeys.im_paideia_contracts_staking_stake, Env.paideiaDaoKey)
         .box(b.ctx)
         .outBox,
-      Unstake(PaideiaContractSignature(daoKey = Env.paideiaDaoKey))
+      Unstake(ConfKeys.im_paideia_contracts_staking_unstake, Env.paideiaDaoKey)
         .box(b.ctx)
         .outBox,
-      StakeSnapshot(PaideiaContractSignature(daoKey = Env.paideiaDaoKey))
+      StakeSnapshot(
+        ConfKeys.im_paideia_contracts_staking_snapshot,
+        Env.paideiaDaoKey
+      )
         .box(b.ctx)
         .outBox,
-      StakeCompound(PaideiaContractSignature(daoKey = Env.paideiaDaoKey))
+      StakeCompound(
+        ConfKeys.im_paideia_contracts_staking_compound,
+        Env.paideiaDaoKey
+      )
         .box(b.ctx)
         .outBox,
-      StakeVote(PaideiaContractSignature(daoKey = Env.paideiaDaoKey))
+      StakeVote(ConfKeys.im_paideia_contracts_staking_vote, Env.paideiaDaoKey)
         .box(b.ctx)
         .outBox,
-      StakeProfitShare(PaideiaContractSignature(daoKey = Env.paideiaDaoKey))
+      StakeProfitShare(
+        ConfKeys.im_paideia_contracts_staking_profitshare,
+        Env.paideiaDaoKey
+      )
         .box(b.ctx)
         .outBox,
       stakeBox.outBox
@@ -1118,14 +1136,6 @@ class PaideiaStateActor extends Actor with Logging {
       Env.conf.getLong("im_paideia_staking_profit_share_pct").toByte
     )
     paideiaConfig.set(
-      ConfKeys.im_paideia_staking_profit_thresholds,
-      Array(1000L, 1000L)
-    )
-    paideiaConfig.set(
-      ConfKeys.im_paideia_staking_profit_tokenids,
-      Array[Array[Byte]]()
-    )
-    paideiaConfig.set(
       ConfKeys.im_paideia_staking_state_tokenid,
       ErgoId
         .create(Env.conf.getString("im_paideia_staking_state_tokenid"))
@@ -1162,32 +1172,36 @@ class PaideiaStateActor extends Actor with Logging {
     Paideia.addDAO(DAO(Env.paideiaDaoKey, paideiaConfig))
     logger.info(Colls.fromArray(paideiaConfig._config.digest).toString())
     val configContract = Config(
-      PaideiaContractSignature(daoKey = Env.paideiaDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = Env.paideiaDaoKey)
     )
     val paideiaOriginContract = PaideiaOrigin(
-      PaideiaContractSignature(daoKey = Env.paideiaDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = Env.paideiaDaoKey)
     )
     val protoDaoProxyContract = ProtoDAOProxy(
-      PaideiaContractSignature(daoKey = Env.paideiaDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = Env.paideiaDaoKey)
     )
     val treasuryContract = Treasury(
-      PaideiaContractSignature(daoKey = Env.paideiaDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = Env.paideiaDaoKey)
     )
     val protoDAOContract = ProtoDAO(
-      PaideiaContractSignature(daoKey = Env.paideiaDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = Env.paideiaDaoKey)
     )
     val mintContract = Mint(
-      PaideiaContractSignature(daoKey = Env.paideiaDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = Env.paideiaDaoKey)
     )
     val daoContract = DAOOrigin(
-      PaideiaContractSignature(daoKey = Env.paideiaDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = Env.paideiaDaoKey)
     )
     val splitProfitContract = SplitProfit(
-      PaideiaContractSignature(daoKey = Env.paideiaDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = Env.paideiaDaoKey)
     )
     paideiaConfig.set(
       ConfKeys.im_paideia_contracts_treasury,
       treasuryContract.contractSignature
+    )
+    paideiaConfig.set(
+      ConfKeys.im_paideia_contracts_paideia_origin,
+      paideiaOriginContract.contractSignature
     )
     paideiaConfig.set(
       ConfKeys.im_paideia_contracts_protodao,
@@ -1219,7 +1233,7 @@ class PaideiaStateActor extends Actor with Logging {
     )
 
     val defaultTreasuryContract = Treasury(
-      PaideiaContractSignature(daoKey = dummyDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = dummyDaoKey)
     )
     paideiaConfig.set(
       ConfKeys.im_paideia_default_treasury,
@@ -1230,7 +1244,7 @@ class PaideiaStateActor extends Actor with Logging {
       treasuryContract.contractSignature
     )
     val defaultConfigContract = Config(
-      PaideiaContractSignature(daoKey = dummyDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = dummyDaoKey)
     )
     paideiaConfig.set(
       ConfKeys.im_paideia_default_config,
@@ -1241,7 +1255,7 @@ class PaideiaStateActor extends Actor with Logging {
       configContract.contractSignature
     )
     val defaultActionSendFundsContract = ActionSendFundsBasic(
-      PaideiaContractSignature(daoKey = dummyDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = dummyDaoKey)
     )
     paideiaConfig.set(
       ConfKeys.im_paideia_default_action_sendfunds,
@@ -1252,7 +1266,7 @@ class PaideiaStateActor extends Actor with Logging {
       defaultActionSendFundsContract.contractSignature
     )
     val defaultActionUpdateConfigContract = ActionUpdateConfig(
-      PaideiaContractSignature(daoKey = dummyDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = dummyDaoKey)
     )
     paideiaConfig.set(
       ConfKeys.im_paideia_default_action_updateconfig,
@@ -1263,7 +1277,7 @@ class PaideiaStateActor extends Actor with Logging {
       defaultActionUpdateConfigContract.contractSignature
     )
     val defaultProposalBasicContract = ProposalBasic(
-      PaideiaContractSignature(daoKey = dummyDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = dummyDaoKey)
     )
     paideiaConfig.set(
       ConfKeys.im_paideia_default_proposal_basic,
@@ -1274,7 +1288,7 @@ class PaideiaStateActor extends Actor with Logging {
       defaultProposalBasicContract.contractSignature
     )
     val defaultStakingChangeContract = ChangeStake(
-      PaideiaContractSignature(daoKey = dummyDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = dummyDaoKey)
     )
     paideiaConfig.set(
       ConfKeys.im_paideia_default_staking_change,
@@ -1285,7 +1299,7 @@ class PaideiaStateActor extends Actor with Logging {
       defaultStakingChangeContract.contractSignature
     )
     val defaultStakingStakeContract = Stake(
-      PaideiaContractSignature(daoKey = dummyDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = dummyDaoKey)
     )
     paideiaConfig.set(
       ConfKeys.im_paideia_default_staking_stake,
@@ -1296,7 +1310,7 @@ class PaideiaStateActor extends Actor with Logging {
       defaultStakingStakeContract.contractSignature
     )
     val defaultStakingCompoundContract = StakeCompound(
-      PaideiaContractSignature(daoKey = dummyDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = dummyDaoKey)
     )
     paideiaConfig.set(
       ConfKeys.im_paideia_default_staking_compound,
@@ -1307,7 +1321,7 @@ class PaideiaStateActor extends Actor with Logging {
       defaultStakingCompoundContract.contractSignature
     )
     val defaultStakingProfitshareContract = StakeProfitShare(
-      PaideiaContractSignature(daoKey = dummyDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = dummyDaoKey)
     )
     paideiaConfig.set(
       ConfKeys.im_paideia_default_staking_profitshare,
@@ -1318,7 +1332,7 @@ class PaideiaStateActor extends Actor with Logging {
       defaultStakingProfitshareContract.contractSignature
     )
     val defaultStakingSnapshotContract = StakeSnapshot(
-      PaideiaContractSignature(daoKey = dummyDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = dummyDaoKey)
     )
     paideiaConfig.set(
       ConfKeys.im_paideia_default_staking_snapshot,
@@ -1329,7 +1343,7 @@ class PaideiaStateActor extends Actor with Logging {
       defaultStakingSnapshotContract.contractSignature
     )
     val defaultStakingStateContract = StakeState(
-      PaideiaContractSignature(daoKey = dummyDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = dummyDaoKey)
     )
     paideiaConfig.set(
       ConfKeys.im_paideia_default_staking_state,
@@ -1340,7 +1354,7 @@ class PaideiaStateActor extends Actor with Logging {
       defaultStakingStateContract.contractSignature
     )
     val defaultStakingVoteContract = StakeVote(
-      PaideiaContractSignature(daoKey = dummyDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = dummyDaoKey)
     )
     paideiaConfig.set(
       ConfKeys.im_paideia_default_staking_vote,
@@ -1351,7 +1365,7 @@ class PaideiaStateActor extends Actor with Logging {
       defaultStakingVoteContract.contractSignature
     )
     val defaultStakingUnstakeContract = Unstake(
-      PaideiaContractSignature(daoKey = dummyDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = dummyDaoKey)
     )
     paideiaConfig.set(
       ConfKeys.im_paideia_default_staking_unstake,
@@ -1379,56 +1393,56 @@ class PaideiaStateActor extends Actor with Logging {
       Env.conf.getLong("im_paideia_fees_operator_max_erg")
     )
     val stakeStakeContract = Stake(
-      PaideiaContractSignature(daoKey = Env.paideiaDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = Env.paideiaDaoKey)
     )
     paideiaConfig.set(
       ConfKeys.im_paideia_contracts_staking_stake,
       stakeStakeContract.contractSignature
     )
     val stakeChangeContract = ChangeStake(
-      PaideiaContractSignature(daoKey = Env.paideiaDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = Env.paideiaDaoKey)
     )
     paideiaConfig.set(
       ConfKeys.im_paideia_contracts_staking_changestake,
       stakeChangeContract.contractSignature
     )
     val stakeUnstakeContract = Unstake(
-      PaideiaContractSignature(daoKey = Env.paideiaDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = Env.paideiaDaoKey)
     )
     paideiaConfig.set(
       ConfKeys.im_paideia_contracts_staking_unstake,
       stakeUnstakeContract.contractSignature
     )
     val stakeSnapshotContract = StakeSnapshot(
-      PaideiaContractSignature(daoKey = Env.paideiaDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = Env.paideiaDaoKey)
     )
     paideiaConfig.set(
       ConfKeys.im_paideia_contracts_staking_snapshot,
       stakeSnapshotContract.contractSignature
     )
     val stakeVoteContract = StakeVote(
-      PaideiaContractSignature(daoKey = Env.paideiaDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = Env.paideiaDaoKey)
     )
     paideiaConfig.set(
       ConfKeys.im_paideia_contracts_staking_vote,
       stakeVoteContract.contractSignature
     )
     val stakeCompoundContract = StakeCompound(
-      PaideiaContractSignature(daoKey = Env.paideiaDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = Env.paideiaDaoKey)
     )
     paideiaConfig.set(
       ConfKeys.im_paideia_contracts_staking_compound,
       stakeCompoundContract.contractSignature
     )
     val stakeProfitshareContract = StakeProfitShare(
-      PaideiaContractSignature(daoKey = Env.paideiaDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = Env.paideiaDaoKey)
     )
     paideiaConfig.set(
       ConfKeys.im_paideia_contracts_staking_profitshare,
       stakeProfitshareContract.contractSignature
     )
     val stakeStateContract = StakeState(
-      PaideiaContractSignature(daoKey = Env.paideiaDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = Env.paideiaDaoKey)
     )
     paideiaConfig.set(
       ConfKeys.im_paideia_contracts_staking_state,
@@ -1439,21 +1453,21 @@ class PaideiaStateActor extends Actor with Logging {
       GovernanceType.DEFAULT.id.toByte
     )
     val proposalContract = ProposalBasic(
-      PaideiaContractSignature(daoKey = Env.paideiaDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = Env.paideiaDaoKey)
     )
     paideiaConfig.set(
       ConfKeys.im_paideia_contracts_proposal(proposalContract.ergoTree.bytes),
       proposalContract.contractSignature
     )
     val sendFundsContract = ActionSendFundsBasic(
-      PaideiaContractSignature(daoKey = Env.paideiaDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = Env.paideiaDaoKey)
     )
     paideiaConfig.set(
       ConfKeys.im_paideia_contracts_action(sendFundsContract.ergoTree.bytes),
       sendFundsContract.contractSignature
     )
     val updateConfigContract = ActionUpdateConfig(
-      PaideiaContractSignature(daoKey = Env.paideiaDaoKey)
+      PaideiaContractSignature(version = "1.0.0", daoKey = Env.paideiaDaoKey)
     )
     paideiaConfig.set(
       ConfKeys.im_paideia_contracts_action(updateConfigContract.ergoTree.bytes),
@@ -1461,21 +1475,6 @@ class PaideiaStateActor extends Actor with Logging {
     )
     val state =
       TotalStakingState(Env.paideiaDaoKey, Env.conf.getLong("emission_start"))
-    val stakeProxy = StakeProxy(
-      PaideiaContractSignature(daoKey = Env.paideiaDaoKey)
-    ).contractSignature
-    val addStakeProxy = AddStakeProxy(
-      PaideiaContractSignature(daoKey = Env.paideiaDaoKey)
-    ).contractSignature
-    val unstakeProxy = UnstakeProxy(
-      PaideiaContractSignature(daoKey = Env.paideiaDaoKey)
-    ).contractSignature
-    val createProposal = CreateProposal(
-      PaideiaContractSignature(daoKey = Env.paideiaDaoKey)
-    ).contractSignature
-    val castVote = CastVote(
-      PaideiaContractSignature(daoKey = Env.paideiaDaoKey)
-    ).contractSignature
     Paideia._daoMap.remove(dummyDaoKey)
     Paideia._actorList.foreach((f: (String, PaideiaActor)) =>
       f._2.contractInstances

@@ -9,7 +9,8 @@ final case class ContractSigModel(
     daoKey: String,
     version: String,
     hash: String,
-    address: String
+    address: String,
+    ergotreeBytes: String
 )
 
 object ContractSigModel {
@@ -21,6 +22,10 @@ object ContractSigModel {
       version = contract.contractSignature.version,
       hash =
         contract.contractSignature.contractHash.map("%02x" format _).mkString,
-      address = contract.contract.toAddress().getErgoAddress().toString()
+      address = contract.contract
+        .toAddress()
+        .getErgoAddress()
+        .toString(),
+      ergotreeBytes = contract.contract.getErgoTree().bytesHex
     )
 }

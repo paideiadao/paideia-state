@@ -43,7 +43,6 @@ import im.paideia.staking.transactions.CompoundTransaction
 import models.MUnsignedTransaction
 import play.api.libs.json.Json
 import org.ergoplatform.appkit.impl.UnsignedTransactionImpl
-import sigmastate.serialization.ValueSerializer
 import scorex.util.encode.Base16
 import scala.reflect.io.File
 import java.nio.file.Files
@@ -53,6 +52,7 @@ import com.google.gson.Gson
 import org.ergoplatform.appkit.InputBoxesSelectionException.NotEnoughCoinsForChangeException
 import org.zeromq.ZContext
 import org.zeromq.SocketType
+import org.ergoplatform.appkit.ErgoClient
 
 class UnsignedTransactionException(
     val transactionJson: String,
@@ -108,55 +108,43 @@ class PaideiaSyncTask @Inject() (
         Env.conf.getString("explorer")
       )
 
-      ergoClient.execute(
-        new java.util.function.Function[BlockchainContext, Unit] {
-          override def apply(_ctx: BlockchainContext): Unit = {
+      if (syncing) {
+        syncFromArchive(ergoClient)
+      }
 
-            val ctx = _ctx.asInstanceOf[BlockchainContextImpl]
-            if (syncing) {
-              syncFromArchive(ctx)
-            }
+      syncRemainingBlocks(ergoClient)
 
-            val datasource =
-              ergoClient
-                .getDataSource()
-                .asInstanceOf[NodeAndExplorerDataSourceImpl]
+      syncing = false
 
-            syncRemainingBlocks(ctx, datasource)
+      syncMempool(ergoClient)
 
-            syncing = false
+      val zContext: ZContext = new ZContext()
+      val socket = zContext.createSocket(SocketType.SUB)
+      val zeroMQIP = Env.conf.getString("zmqHost")
+      val zeroMQPort = Env.conf.getString("zmqPort")
+      socket.connect(f"tcp://${zeroMQIP}:${zeroMQPort}")
+      socket.subscribe("mempool")
+      socket.subscribe("newBlock")
 
-            syncMempool(ctx, datasource)
+      generateTransactions(ergoClient)
 
-            generateTransactions(ctx)
-
-            val zContext: ZContext = new ZContext()
-            val socket = zContext.createSocket(SocketType.SUB)
-            val zeroMQIP = "192.168.1.137"
-            val zeroMQPort = "9060"
-            socket.connect(f"tcp://${zeroMQIP}:${zeroMQPort}")
-            socket.subscribe("mempool")
-            socket.subscribe("newBlock")
-
-            while (true) {
-              val message = socket.recvStr()
-              if (message == "newBlock") {
-                logger.info("New block")
-                val blockHeader = socket.recvStr()
-                syncRemainingBlocks(ctx, datasource)
-                syncMempool(ctx, datasource)
-                generateTransactions(ctx)
-              }
-              if (message == "mempool") {
-                logger.info("New mempool transaction")
-                val transactionId = socket.recvStr()
-                if (syncMempoolTransaction(ctx, transactionId, datasource))
-                  generateTransactions(ctx)
-              }
-            }
-          }
+      while (true) {
+        val message = socket.recvStr()
+        if (message == "newBlock") {
+          logger.info("New block")
+          val blockHeader = socket.recvStr()
+          syncRemainingBlocks(ergoClient)
+          syncMempool(ergoClient)
+          generateTransactions(ergoClient)
         }
-      )
+        if (message == "mempool") {
+          logger.info("New mempool transaction")
+          val transactionId = socket.recvStr()
+          if (syncMempoolTransaction(ergoClient, transactionId))
+            generateTransactions(ergoClient)
+        }
+      }
+
     } catch {
       case e: Exception => {
         logger.error(e.getStackTrace().map(_.toString()).mkString)
@@ -166,387 +154,446 @@ class PaideiaSyncTask @Inject() (
   )
 
   def syncMempoolTransaction(
-      ctx: BlockchainContextImpl,
-      transactionId: String,
-      datasource: NodeAndExplorerDataSourceImpl
+      ergoClient: ErgoClient,
+      transactionId: String
   ) = {
-    val t = datasource
-      .getNodeTransactionsApi()
-      .getUnconfirmedTransactionById(transactionId)
-      .execute()
-      .body()
-    val eventResponse = Await.result(
-      (paideiaActor ? BlockchainEvent(
-        TransactionEvent(ctx, true, t),
-        syncing
-      ))
-        .mapTo[Try[PaideiaEventResponse]]
-        .map(per => {
-          per match {
-            case Success(resp) =>
-              resp.exceptions
-                .foreach(e => (errorActor ! e))
-            case Failure(exception) =>
-              logger.error(exception.getMessage(), exception)
-          }
-          per
-        }),
-      5.seconds
-    )
+    ergoClient.execute(
+      new java.util.function.Function[BlockchainContext, Boolean] {
+        override def apply(_ctx: BlockchainContext): Boolean = {
 
-    mempoolTransactions(t.getId()) = t
-    logger.info(f"Response to mempool tx: ${eventResponse.get}")
-    eventResponse.isSuccess && eventResponse.get.status >= 1
-  }
-
-  def generateTransactions(ctx: BlockchainContextImpl) = {
-    var usedInputs = List[ErgoId]()
-
-    Await.result(
-      (paideiaActor ? BlockchainEvent(
-        CreateTransactionsEvent(
-          ctx,
-          ctx
-            .getHeaders()
-            .get(0)
-            .getTimestamp(),
-          currentHeight
-        ),
-        syncing
-      ))
-        .mapTo[Try[PaideiaEventResponse]]
-        .map(per =>
-          per match {
-            case Success(resp) => {
-              logger.info(resp.toString())
-              resp.unsignedTransactions.foreach(ut => {
-                if (ut.inputs.forall(b => !usedInputs.contains(b.getId())))
-                  try {
-                    ut match {
-                      case t: PaideiaTransaction =>
-                        logger
-                          .info(
-                            s"""Attempting to sign transaction type: ${ut
-                                .getClass()
-                                .getCanonicalName()}"""
-                          )
-                        try {
-                          ctx.sendTransaction(
-                            ctx
-                              .newProverBuilder()
-                              .build()
-                              .sign(ut.unsigned())
-                          )
-                          usedInputs =
-                            usedInputs ++ ut.inputs.map(b => b.getId())
-                        } catch {
-                          case e: Exception =>
-                            try {
-                              (errorActor ! new UnsignedTransactionException(
-                                Json
-                                  .toJson(
-                                    MUnsignedTransaction(ut.unsigned())
-                                  )
-                                  .toString(),
-                                e
-                              ))
-                            } catch {
-                              case e: Exception => (errorActor ! e)
-                            }
-                        }
-                    }
-                  } catch {
-                    case e: Exception => (errorActor ! e)
+          val ctx = _ctx.asInstanceOf[BlockchainContextImpl]
+          val datasource =
+            ergoClient
+              .getDataSource()
+              .asInstanceOf[NodeAndExplorerDataSourceImpl]
+          val resp = datasource
+            .getNodeTransactionsApi()
+            .getUnconfirmedTransactionById(transactionId)
+            .execute()
+          if (resp.isSuccessful()) {
+            val t = resp
+              .body()
+            val eventResponse = Await.result(
+              (paideiaActor ? BlockchainEvent(
+                TransactionEvent(ctx, true, t),
+                syncing
+              ))
+                .mapTo[Try[PaideiaEventResponse]]
+                .map(per => {
+                  per match {
+                    case Success(resp) =>
+                      resp.exceptions
+                        .foreach(e => (errorActor ! e))
+                    case Failure(exception) =>
+                      logger.error(exception.getMessage(), exception)
                   }
-              })
-              resp.exceptions.map(e => {
-                (errorActor ! e)
-              })
-            }
-            case Failure(exception) =>
-              logger.error(exception.getMessage(), exception)
+                  per
+                }),
+              5.seconds
+            )
+
+            mempoolTransactions(t.getId()) = t
+            logger.info(f"Response to mempool tx: ${eventResponse.get}")
+            eventResponse.isSuccess && eventResponse.get.status >= 1
+          } else {
+            logger.info(
+              f"Failed fetching mempool tx ${transactionId}: ${resp.toString()}"
+            )
+            false
           }
-        ),
-      30.seconds
-    )
-  }
-
-  def syncMempool(
-      ctx: BlockchainContextImpl,
-      datasource: NodeAndExplorerDataSourceImpl
-  ) = {
-    var offset = 0
-    val limit = 50
-    var resultSize = limit
-    var newMempoolTransactions =
-      mutable.HashMap[String, ErgoTransaction]()
-
-    while (limit == resultSize) {
-      val memTransactions =
-        datasource
-          .getNodeTransactionsApi()
-          .getUnconfirmedTransactions(limit, offset)
-          .execute()
-          .body()
-      resultSize = memTransactions.size()
-      offset += limit
-      memTransactions.forEach(t => {
-        if (!mempoolTransactions.contains(t.getId())) {
-          Await.result(
-            (paideiaActor ? BlockchainEvent(
-              TransactionEvent(ctx, true, t),
-              syncing
-            ))
-              .mapTo[Try[PaideiaEventResponse]]
-              .map(per =>
-                per match {
-                  case Success(resp) =>
-                    resp.exceptions
-                      .foreach(e => (errorActor ! e))
-                  case Failure(exception) =>
-                    logger.error(exception.getMessage(), exception)
-                }
-              ),
-            5.seconds
-          )
         }
-        newMempoolTransactions(t.getId()) = t
-      })
-    }
-
-    mempoolTransactions.foreach(kv =>
-      if (!newMempoolTransactions.contains(kv._1)) {
-        Await.result(
-          (paideiaActor ? BlockchainEvent(
-            TransactionEvent(ctx, true, kv._2, rollback = true),
-            syncing
-          ))
-            .mapTo[Try[PaideiaEventResponse]]
-            .map(per =>
-              per match {
-                case Success(resp) =>
-                  resp.exceptions
-                    .foreach(e => (errorActor ! e))
-                case Failure(exception) =>
-                  logger.error(exception.getMessage(), exception)
-              }
-            ),
-          5.seconds
-        )
       }
     )
-
-    mempoolTransactions = newMempoolTransactions
-
-    val orphanedTxs = mutable.Buffer[String]()
-    val orphanedOutputs = mutable.Buffer[String]()
-    var foundNewOrphan = true
-
-    while (foundNewOrphan) {
-      foundNewOrphan = false
-      mempoolTransactions.foreach(kv => {
-        if (!orphanedTxs.contains(kv._1))
-          if (
-            !kv._2
-              .getInputs()
-              .asScala
-              .forall(eti =>
-                try {
-                  if (orphanedOutputs.contains(eti.getBoxId()))
-                    false
-                  else {
-                    ctx
-                      .getDataSource()
-                      .getBoxById(eti.getBoxId(), true, false)
-                    true
-                  }
-                } catch { case e: Exception => false }
-              )
-          ) {
-            logger.info(
-              s"""Found orphan tx in mempool, rolling back: ${kv._1}"""
-            )
-            orphanedTxs += kv._1
-            orphanedOutputs ++= kv._2
-              .getOutputs()
-              .asScala
-              .map(eto => eto.getBoxId())
-            foundNewOrphan = true
-          }
-      })
-    }
-
-    orphanedTxs.foreach(txId =>
-      Await.result(
-        (paideiaActor ? BlockchainEvent(
-          TransactionEvent(
-            ctx,
-            true,
-            mempoolTransactions(txId),
-            rollback = true
-          ),
-          syncing
-        ))
-          .mapTo[Try[PaideiaEventResponse]]
-          .map(per =>
-            per match {
-              case Success(resp) =>
-                resp.exceptions
-                  .foreach(e => (errorActor ! e))
-              case Failure(exception) =>
-                logger.error(exception.getMessage(), exception)
-            }
-          ),
-        5.seconds
-      )
-    )
   }
 
-  def syncRemainingBlocks(
-      ctx: BlockchainContextImpl,
-      datasource: NodeAndExplorerDataSourceImpl
-  ) = {
+  def generateTransactions(ergoClient: ErgoClient) = {
+    ergoClient.execute(new java.util.function.Function[BlockchainContext, Unit] {
+      override def apply(_ctx: BlockchainContext): Unit = {
+        val datasource =
+          ergoClient
+            .getDataSource()
+            .asInstanceOf[NodeAndExplorerDataSourceImpl]
+        val ctx = _ctx.asInstanceOf[BlockchainContextImpl]
+        var usedInputs = List[ErgoId]()
 
-    var nodeHeight =
-      datasource.getNodeInfoApi().getNodeInfo().execute().body().getFullHeight()
-
-    logger.info(s"""Node height: ${nodeHeight
-        .toString()} Current height: ${currentHeight.toString()}""")
-
-    var blockAwaitable = Future {
-      val blockHeaderId = datasource
-        .getNodeBlocksApi()
-        .getFullBlockAt(currentHeight)
-        .execute()
-        .body()
-        .get(0);
-      datasource
-        .getNodeBlocksApi()
-        .getFullBlockById(blockHeaderId)
-        .execute()
-        .body()
-    };
-
-    while (currentHeight < nodeHeight) {
-      val fullBlock =
-        Await.result(blockAwaitable, 20.seconds)
-      if (currentHeight + 1 < nodeHeight)
-        blockAwaitable = Future {
-          val blockHeaderId = datasource
-            .getNodeBlocksApi()
-            .getFullBlockAt(currentHeight + 1)
-            .execute()
-            .body()
-            .get(0);
-          datasource
-            .getNodeBlocksApi()
-            .getFullBlockById(blockHeaderId)
-            .execute()
-            .body()
-        };
-      val txs = fullBlock
-        .getBlockTransactions()
-        .getTransactions()
-        .asScala
-      txs.foreach(et => {
-        val event = TransactionEvent(
-          ctx,
-          false,
-          et,
-          fullBlock.getHeader().getHeight()
-        )
         Await.result(
           (paideiaActor ? BlockchainEvent(
-            event,
+            CreateTransactionsEvent(
+              ctx,
+              ctx
+                .getHeaders()
+                .get(0)
+                .getTimestamp(),
+              currentHeight
+            ),
             syncing
           ))
             .mapTo[Try[PaideiaEventResponse]]
             .map(per =>
               per match {
                 case Success(resp) => {
-                  if (resp.status > 0) (archiveActor ? event)
-                  resp.exceptions
-                    .foreach(e => {
-
-                      logger.error(e.getMessage(), e)
-                      throw e
-
-                    })
+                  logger.info(resp.toString())
+                  resp.unsignedTransactions.foreach(ut => {
+                    if (ut.inputs.forall(b => !usedInputs.contains(b.getId())))
+                      try {
+                        ut match {
+                          case t: PaideiaTransaction =>
+                            logger
+                              .info(
+                                s"""Attempting to sign transaction type: ${ut
+                                    .getClass()
+                                    .getCanonicalName()}"""
+                              )
+                            try {
+                              ctx.sendTransaction(
+                                ctx
+                                  .newProverBuilder()
+                                  .build()
+                                  .sign(ut.unsigned())
+                              )
+                              usedInputs =
+                                usedInputs ++ ut.inputs.map(b => b.getId())
+                            } catch {
+                              case e: Exception =>
+                                try {
+                                  (errorActor ! new UnsignedTransactionException(
+                                    Json
+                                      .toJson(
+                                        MUnsignedTransaction(ut.unsigned())
+                                      )
+                                      .toString(),
+                                    e
+                                  ))
+                                } catch {
+                                  case e: Exception => (errorActor ! e)
+                                }
+                            }
+                        }
+                      } catch {
+                        case e: Exception => (errorActor ! e)
+                      }
+                  })
+                  resp.exceptions.map(e => {
+                    (errorActor ! e)
+                  })
                 }
-
                 case Failure(exception) =>
                   logger.error(exception.getMessage(), exception)
-
               }
             ),
           30.seconds
         )
-      })
-      currentHeight += 1
-      if (currentHeight >= nodeHeight)
-        nodeHeight = datasource
-          .getNodeInfoApi()
-          .getNodeInfo()
-          .execute()
-          .body()
-          .getFullHeight()
-      if (currentHeight % 100 == 0)
-        logger.info(
-          s"""Syncer current height: ${currentHeight.toString}"""
-        )
-    }
-  }
-
-  def syncFromArchive(ctx: BlockchainContextImpl) = {
-    val archivedTransactionFiles = Files
-      .list(Paths.get("transaction_archive"))
-      .iterator()
-      .asScala
-      .filter(Files.isRegularFile(_))
-      .toSeq
-      .sorted
-
-    archivedTransactionFiles.foreach((p) => {
-      logger.info(p.toString())
-      val height = p.getFileName().toString().toInt
-      if (height >= currentHeight) {
-        val transactions: Array[ErgoTransaction] =
-          new Gson().fromJson(
-            Files.readString(p, StandardCharsets.UTF_8),
-            classOf[Array[ErgoTransaction]]
-          )
-        transactions.foreach((et) => {
-          val event = TransactionEvent(
-            ctx,
-            false,
-            et,
-            height
-          )
-          Await.result(
-            (paideiaActor ? BlockchainEvent(
-              event,
-              syncing
-            ))
-              .mapTo[Try[PaideiaEventResponse]]
-              .map(per =>
-                per match {
-                  case Success(resp) => {
-                    resp.exceptions
-                      .foreach(e => {
-                        (errorActor ! e)
-                      })
-                  }
-
-                  case Failure(exception) =>
-                    logger.error(exception.getMessage(), exception)
-
-                }
-              ),
-            30.seconds
-          )
-        })
       }
-      currentHeight = height + 1
     })
   }
+
+  def syncMempool(
+      ergoClient: ErgoClient
+  ) = {
+    ergoClient.execute(
+      new java.util.function.Function[BlockchainContext, Unit] {
+        override def apply(_ctx: BlockchainContext): Unit = {
+          val datasource =
+            ergoClient
+              .getDataSource()
+              .asInstanceOf[NodeAndExplorerDataSourceImpl]
+          val ctx = _ctx.asInstanceOf[BlockchainContextImpl]
+          var offset = 0
+          val limit = 50
+          var resultSize = limit
+          var newMempoolTransactions =
+            mutable.HashMap[String, ErgoTransaction]()
+
+          while (limit == resultSize) {
+            val memTransactions =
+              datasource
+                .getNodeTransactionsApi()
+                .getUnconfirmedTransactions(limit, offset)
+                .execute()
+                .body()
+            resultSize = memTransactions.size()
+            offset += limit
+            memTransactions.forEach(t => {
+              if (!mempoolTransactions.contains(t.getId())) {
+                Await.result(
+                  (paideiaActor ? BlockchainEvent(
+                    TransactionEvent(ctx, true, t),
+                    syncing
+                  ))
+                    .mapTo[Try[PaideiaEventResponse]]
+                    .map(per =>
+                      per match {
+                        case Success(resp) =>
+                          resp.exceptions
+                            .foreach(e => (errorActor ! e))
+                        case Failure(exception) =>
+                          logger.error(exception.getMessage(), exception)
+                      }
+                    ),
+                  5.seconds
+                )
+              }
+              newMempoolTransactions(t.getId()) = t
+            })
+          }
+
+          mempoolTransactions.foreach(kv =>
+            if (!newMempoolTransactions.contains(kv._1)) {
+              Await.result(
+                (paideiaActor ? BlockchainEvent(
+                  TransactionEvent(ctx, true, kv._2, rollback = true),
+                  syncing
+                ))
+                  .mapTo[Try[PaideiaEventResponse]]
+                  .map(per =>
+                    per match {
+                      case Success(resp) =>
+                        resp.exceptions
+                          .foreach(e => (errorActor ! e))
+                      case Failure(exception) =>
+                        logger.error(exception.getMessage(), exception)
+                    }
+                  ),
+                5.seconds
+              )
+            }
+          )
+
+          mempoolTransactions = newMempoolTransactions
+
+          val orphanedTxs = mutable.Buffer[String]()
+          val orphanedOutputs = mutable.Buffer[String]()
+          var foundNewOrphan = true
+
+          while (foundNewOrphan) {
+            foundNewOrphan = false
+            mempoolTransactions.foreach(kv => {
+              if (!orphanedTxs.contains(kv._1))
+                if (
+                  !kv._2
+                    .getInputs()
+                    .asScala
+                    .forall(eti =>
+                      try {
+                        if (orphanedOutputs.contains(eti.getBoxId()))
+                          false
+                        else {
+                          ctx
+                            .getDataSource()
+                            .getBoxById(eti.getBoxId(), true, false)
+                          true
+                        }
+                      } catch { case e: Exception => false }
+                    )
+                ) {
+                  logger.info(
+                    s"""Found orphan tx in mempool, rolling back: ${kv._1}"""
+                  )
+                  orphanedTxs += kv._1
+                  orphanedOutputs ++= kv._2
+                    .getOutputs()
+                    .asScala
+                    .map(eto => eto.getBoxId())
+                  foundNewOrphan = true
+                }
+            })
+          }
+
+          orphanedTxs.foreach(txId =>
+            Await.result(
+              (paideiaActor ? BlockchainEvent(
+                TransactionEvent(
+                  ctx,
+                  true,
+                  mempoolTransactions(txId),
+                  rollback = true
+                ),
+                syncing
+              ))
+                .mapTo[Try[PaideiaEventResponse]]
+                .map(per =>
+                  per match {
+                    case Success(resp) =>
+                      resp.exceptions
+                        .foreach(e => (errorActor ! e))
+                    case Failure(exception) =>
+                      logger.error(exception.getMessage(), exception)
+                  }
+                ),
+              5.seconds
+            )
+          )
+        }
+      }
+    )
+  }
+
+  def syncRemainingBlocks(
+      ergoClient: ErgoClient
+  ) = {
+    ergoClient.execute(
+      new java.util.function.Function[BlockchainContext, Unit] {
+        override def apply(_ctx: BlockchainContext): Unit = {
+          val datasource =
+            ergoClient
+              .getDataSource()
+              .asInstanceOf[NodeAndExplorerDataSourceImpl]
+          val ctx = _ctx.asInstanceOf[BlockchainContextImpl]
+          var nodeHeight =
+            datasource
+              .getNodeInfoApi()
+              .getNodeInfo()
+              .execute()
+              .body()
+              .getFullHeight()
+
+          logger.info(s"""Node height: ${nodeHeight
+              .toString()} Current height: ${currentHeight.toString()}""")
+
+          var blockAwaitable = Future {
+            val blockHeaderId = datasource
+              .getNodeBlocksApi()
+              .getFullBlockAt(currentHeight)
+              .execute()
+              .body()
+              .get(0);
+            datasource
+              .getNodeBlocksApi()
+              .getFullBlockById(blockHeaderId)
+              .execute()
+              .body()
+          };
+
+          while (currentHeight < nodeHeight) {
+            val fullBlock =
+              Await.result(blockAwaitable, 20.seconds)
+            if (currentHeight + 1 < nodeHeight)
+              blockAwaitable = Future {
+                val blockHeaderId = datasource
+                  .getNodeBlocksApi()
+                  .getFullBlockAt(currentHeight + 1)
+                  .execute()
+                  .body()
+                  .get(0);
+                datasource
+                  .getNodeBlocksApi()
+                  .getFullBlockById(blockHeaderId)
+                  .execute()
+                  .body()
+              };
+            val txs = fullBlock
+              .getBlockTransactions()
+              .getTransactions()
+              .asScala
+            txs.foreach(et => {
+              val event = TransactionEvent(
+                ctx,
+                false,
+                et,
+                fullBlock.getHeader().getHeight()
+              )
+              Await.result(
+                (paideiaActor ? BlockchainEvent(
+                  event,
+                  syncing
+                ))
+                  .mapTo[Try[PaideiaEventResponse]]
+                  .map(per =>
+                    per match {
+                      case Success(resp) => {
+                        if (resp.status > 0) (archiveActor ? event)
+                        resp.exceptions
+                          .foreach(e => {
+
+                            logger.error(e.getMessage(), e)
+                            throw e
+
+                          })
+                      }
+
+                      case Failure(exception) =>
+                        logger.error(exception.getMessage(), exception)
+
+                    }
+                  ),
+                30.seconds
+              )
+            })
+            currentHeight += 1
+            if (currentHeight >= nodeHeight)
+              nodeHeight = datasource
+                .getNodeInfoApi()
+                .getNodeInfo()
+                .execute()
+                .body()
+                .getFullHeight()
+            if (currentHeight % 100 == 0)
+              logger.info(
+                s"""Syncer current height: ${currentHeight.toString}"""
+              )
+          }
+        }
+      }
+    )
+  }
+
+  def syncFromArchive(ergoClient: ErgoClient) =
+    ergoClient.execute(
+      new java.util.function.Function[BlockchainContext, Unit] {
+        override def apply(_ctx: BlockchainContext): Unit = {
+
+          val ctx = _ctx.asInstanceOf[BlockchainContextImpl]
+          val archivedTransactionFiles = Files
+            .list(Paths.get("transaction_archive"))
+            .iterator()
+            .asScala
+            .filter(Files.isRegularFile(_))
+            .toSeq
+            .sorted
+
+          archivedTransactionFiles.foreach((p) => {
+            logger.info(p.toString())
+            val height = p.getFileName().toString().toInt
+            if (height >= currentHeight) {
+              val transactions: Array[ErgoTransaction] =
+                new Gson().fromJson(
+                  Files.readString(p, StandardCharsets.UTF_8),
+                  classOf[Array[ErgoTransaction]]
+                )
+              transactions.foreach((et) => {
+                val event = TransactionEvent(
+                  ctx,
+                  false,
+                  et,
+                  height
+                )
+                Await.result(
+                  (paideiaActor ? BlockchainEvent(
+                    event,
+                    syncing
+                  ))
+                    .mapTo[Try[PaideiaEventResponse]]
+                    .map(per =>
+                      per match {
+                        case Success(resp) => {
+                          resp.exceptions
+                            .foreach(e => {
+                              (errorActor ! e)
+                            })
+                        }
+
+                        case Failure(exception) =>
+                          logger.error(exception.getMessage(), exception)
+
+                      }
+                    ),
+                  30.seconds
+                )
+              })
+            }
+            currentHeight = height + 1
+          })
+        }
+      }
+    )
 }

@@ -201,7 +201,13 @@ class DAOController @Inject() (
                                 .withAmountToSpend(outBox.getValue())
                                 .withTokensToSpend(outBox.getTokens())
                                 .buildTxWithDefaultInputs(tb =>
-                                  tb.addOutputs(outBox)
+                                  tb.addOutputs(
+                                    outBox,
+                                    MUnsignedTransaction.uiFeeBox(
+                                      _ctx.asInstanceOf[BlockchainContextImpl],
+                                      Env.conf.getLong("uiFeeCreateDAO")
+                                    )
+                                  )
                                 )
                             )
                           )

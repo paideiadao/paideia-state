@@ -42,6 +42,7 @@ import org.ergoplatform.appkit.impl.NodeDataSourceImpl
 import org.ergoplatform.restapi.client.ApiClient
 import okhttp3.OkHttpClient
 import models.GetStakesRequest
+import im.paideia.common.transactions.PaideiaTransaction
 
 @Singleton
 class StakeController @Inject() (
@@ -74,7 +75,9 @@ class StakeController @Inject() (
               .mapTo[Try[List[StakeInfo]]]
               .map(stakeRecordTry =>
                 stakeRecordTry match {
-                  case Success(stakeRecord) => Ok(Json.toJson(stakeRecord(0)))
+                  case Success(stakeRecord) =>
+                    if (stakeRecord.length > 0) Ok(Json.toJson(stakeRecord(0)))
+                    else { NotFound }
                   case Failure(exception) => {
                     (errorActor ! exception)
                     BadRequest(exception.getMessage())
@@ -157,40 +160,26 @@ class StakeController @Inject() (
         createErgoClient.execute(
           new java.util.function.Function[BlockchainContext, Future[Result]] {
             override def apply(_ctx: BlockchainContext): Future[Result] = {
-              (paideiaActor ? StakeBox(
+              (paideiaActor ? StakeTransactionRequest(
                 _ctx.asInstanceOf[BlockchainContextImpl],
                 stake.daoKey,
                 stake.userAddress,
                 stake.stakeAmount
-              )).mapTo[Try[OutBox]]
+              )).mapTo[Try[PaideiaTransaction]]
                 .map(outBoxTry =>
                   outBoxTry match {
                     case Failure(exception) => {
                       (errorActor ! exception)
                       BadRequest(exception.getMessage())
                     }
-                    case Success(outBox) =>
+                    case Success(paideiaTransaction) =>
                       try {
                         Ok(
                           Json.toJson(
                             MUnsignedTransaction(
-                              BoxOperations
-                                .createForSenders(
-                                  stake.userAddresses
-                                    .map(addr => Address.create(addr))
-                                    .toList
-                                    .asJava,
-                                  _ctx
-                                )
-                                .withInputBoxesLoader(
-                                  new ExplorerAndPoolUnspentBoxesLoader()
-                                    .withAllowChainedTx(true)
-                                )
-                                .withAmountToSpend(outBox.getValue())
-                                .withTokensToSpend(outBox.getTokens())
-                                .buildTxWithDefaultInputs(tb =>
-                                  tb.addOutputs(outBox)
-                                )
+                              paideiaTransaction,
+                              stake.userAddresses,
+                              Env.conf.getLong("uiFeeStakeOp")
                             )
                           )
                         )
@@ -233,41 +222,27 @@ class StakeController @Inject() (
         createErgoClient.execute(
           new java.util.function.Function[BlockchainContext, Future[Result]] {
             override def apply(_ctx: BlockchainContext): Future[Result] = {
-              (paideiaActor ? AddStakeBox(
+              (paideiaActor ? AddStakeTransactionRequest(
                 _ctx.asInstanceOf[BlockchainContextImpl],
                 addStake.daoKey,
                 addStake.stakeKey,
                 addStake.userAddress,
                 addStake.addStakeAmount
-              )).mapTo[Try[OutBox]]
+              )).mapTo[Try[PaideiaTransaction]]
                 .map(outBoxTry =>
                   outBoxTry match {
                     case Failure(exception) => {
                       (errorActor ! exception)
                       BadRequest(exception.getMessage())
                     }
-                    case Success(outBox) =>
+                    case Success(paideiaTransaction) =>
                       try {
                         Ok(
                           Json.toJson(
                             MUnsignedTransaction(
-                              BoxOperations
-                                .createForSenders(
-                                  addStake.userAddresses
-                                    .map(addr => Address.create(addr))
-                                    .toList
-                                    .asJava,
-                                  _ctx
-                                )
-                                .withInputBoxesLoader(
-                                  new ExplorerAndPoolUnspentBoxesLoader()
-                                    .withAllowChainedTx(true)
-                                )
-                                .withAmountToSpend(outBox.getValue())
-                                .withTokensToSpend(outBox.getTokens())
-                                .buildTxWithDefaultInputs(tb =>
-                                  tb.addOutputs(outBox)
-                                )
+                              paideiaTransaction,
+                              addStake.userAddresses,
+                              Env.conf.getLong("uiFeeStakeOp")
                             )
                           )
                         )
@@ -310,41 +285,27 @@ class StakeController @Inject() (
         createErgoClient.execute(
           new java.util.function.Function[BlockchainContext, Future[Result]] {
             override def apply(_ctx: BlockchainContext): Future[Result] = {
-              (paideiaActor ? UnstakeBox(
+              (paideiaActor ? UnstakeTransactionRequest(
                 _ctx.asInstanceOf[BlockchainContextImpl],
                 unstake.daoKey,
                 unstake.stakeKey,
                 unstake.userAddress,
                 unstake.newStakeRecord
-              )).mapTo[Try[OutBox]]
+              )).mapTo[Try[PaideiaTransaction]]
                 .map(outBoxTry =>
                   outBoxTry match {
                     case Failure(exception) => {
                       (errorActor ! exception)
                       BadRequest(exception.getMessage())
                     }
-                    case Success(outBox) =>
+                    case Success(paideiaTransaction) =>
                       try {
                         Ok(
                           Json.toJson(
                             MUnsignedTransaction(
-                              BoxOperations
-                                .createForSenders(
-                                  unstake.userAddresses
-                                    .map(addr => Address.create(addr))
-                                    .toList
-                                    .asJava,
-                                  _ctx
-                                )
-                                .withInputBoxesLoader(
-                                  new ExplorerAndPoolUnspentBoxesLoader()
-                                    .withAllowChainedTx(true)
-                                )
-                                .withAmountToSpend(outBox.getValue())
-                                .withTokensToSpend(outBox.getTokens())
-                                .buildTxWithDefaultInputs(tb =>
-                                  tb.addOutputs(outBox)
-                                )
+                              paideiaTransaction,
+                              unstake.userAddresses,
+                              Env.conf.getLong("uiFeeStakeOp")
                             )
                           )
                         )
