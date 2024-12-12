@@ -75,6 +75,8 @@ class PaideiaSyncTask @Inject() (
 
   implicit val timeout: Timeout = 25.seconds
 
+  val virtualMempoolHeight: Int = 10
+
   var currentHeight = Env.conf.getInt("syncStart")
   var syncing = true
   var mempoolTransactions = mutable.HashMap[String, ErgoTransaction]()
@@ -304,6 +306,87 @@ class PaideiaSyncTask @Inject() (
           var newMempoolTransactions =
             mutable.HashMap[String, ErgoTransaction]()
 
+          var nodeHeight =
+            datasource
+              .getNodeInfoApi()
+              .getNodeInfo()
+              .execute()
+              .body()
+              .getFullHeight()
+
+          var virtualCurrentHeight = currentHeight
+
+          var blockAwaitable = Future {
+            val blockHeaderId = datasource
+              .getNodeBlocksApi()
+              .getFullBlockAt(virtualCurrentHeight)
+              .execute()
+              .body()
+              .get(0);
+            datasource
+              .getNodeBlocksApi()
+              .getFullBlockById(blockHeaderId)
+              .execute()
+              .body()
+          };
+
+          while (virtualCurrentHeight < nodeHeight) {
+            val fullBlock =
+              Await.result(blockAwaitable, 20.seconds)
+            if (virtualCurrentHeight + 1 < nodeHeight)
+              blockAwaitable = Future {
+                val blockHeaderId = datasource
+                  .getNodeBlocksApi()
+                  .getFullBlockAt(virtualCurrentHeight + 1)
+                  .execute()
+                  .body()
+                  .get(0);
+                datasource
+                  .getNodeBlocksApi()
+                  .getFullBlockById(blockHeaderId)
+                  .execute()
+                  .body()
+              };
+            val txs = fullBlock
+              .getBlockTransactions()
+              .getTransactions()
+              .asScala
+            txs.foreach(et => {
+              if (!mempoolTransactions.contains(et.getId())) {
+                Await.result(
+                  (paideiaActor ? BlockchainEvent(
+                    TransactionEvent(ctx, true, et),
+                    syncing
+                  ))
+                    .mapTo[Try[PaideiaEventResponse]]
+                    .map(per =>
+                      per match {
+                        case Success(resp) =>
+                          resp.exceptions
+                            .foreach(e => (errorActor ! e))
+                        case Failure(exception) =>
+                          logger.error(exception.getMessage(), exception)
+                      }
+                    ),
+                  5.seconds
+                )
+              }
+              newMempoolTransactions(et.getId()) = et
+            })
+            virtualCurrentHeight += 1
+            if (virtualCurrentHeight >= nodeHeight)
+              nodeHeight = datasource
+                .getNodeInfoApi()
+                .getNodeInfo()
+                .execute()
+                .body()
+                .getFullHeight()
+            if (virtualCurrentHeight % 100 == 0)
+              logger.info(
+                s"""Syncer current height: ${virtualCurrentHeight.toString}"""
+              )
+          }
+
           while (limit == resultSize) {
             val memTransactions =
               datasource
@@ -378,13 +461,23 @@ class PaideiaSyncTask @Inject() (
                         if (orphanedOutputs.contains(eti.getBoxId()))
                           false
                         else {
-                          ctx
-                            .getDataSource()
-                            .getBoxById(eti.getBoxId(), true, false)
                           true
                         }
                       } catch { case e: Exception => false }
-                    )
+                    ) ||
+                  !kv._2
+                    .getOutputs()
+                    .asScala
+                    .forall(eto => {
+                      try {
+                        ctx
+                          .getDataSource()
+                          .getBoxById(eto.getBoxId(), true, true)
+                        true
+                      } catch {
+                        case e: Exception => false
+                      }
+                    })
                 ) {
                   logger.info(
                     s"""Found orphan tx in mempool, rolling back: ${kv._1}"""
@@ -464,10 +557,10 @@ class PaideiaSyncTask @Inject() (
               .body()
           };
 
-          while (currentHeight < nodeHeight) {
+          while (currentHeight < (nodeHeight - virtualMempoolHeight)) {
             val fullBlock =
               Await.result(blockAwaitable, 20.seconds)
-            if (currentHeight + 1 < nodeHeight)
+            if (currentHeight + 1 < (nodeHeight - virtualMempoolHeight))
               blockAwaitable = Future {
                 val blockHeaderId = datasource
                   .getNodeBlocksApi()
@@ -520,7 +613,7 @@ class PaideiaSyncTask @Inject() (
               )
             })
             currentHeight += 1
-            if (currentHeight >= nodeHeight)
+            if (currentHeight >= (nodeHeight - virtualMempoolHeight))
               nodeHeight = datasource
                 .getNodeInfoApi()
                 .getNodeInfo()
