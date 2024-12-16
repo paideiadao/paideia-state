@@ -76,6 +76,7 @@ object MUnsignedTransaction {
       .withAmountToSpend(userFundsNeeded._1)
       .withTokensToSpend(
         userFundsNeeded._2
+          .filter((t: (ModifierId, Long)) => t._2 > 0L)
           .map((t: (ModifierId, Long)) =>
             ErgoToken(new ErgoId(t._1.toBytes), t._2)
           )
