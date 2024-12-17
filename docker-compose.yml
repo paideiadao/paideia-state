@@ -3,8 +3,8 @@ version: '3'
 services:
 
   paideia-state:
-    container_name: paideia-state
-    image: paideia-state:latest
+    container_name: paideia-state-main
+    image: paideia-state-main:latest
     env_file: .env
     volumes:
       - ./transaction_archive:/opt/docker/transaction_archive
@@ -13,7 +13,7 @@ services:
       - ./daoconfigs:/opt/docker/daoconfigs
       - ./proposals:/opt/docker/proposals
     ports:
-      - 9123:9000
+      - 9124:9000
     networks:
       - p-net
     restart: unless-stopped
