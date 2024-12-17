@@ -1,5 +1,5 @@
 import com.typesafe.sbt.packager.docker.ExecCmd
-name := """paideia-state"""
+name := """paideia-state-main"""
 organization := "im.paideia"
 
 version := "1.0-SNAPSHOT"
