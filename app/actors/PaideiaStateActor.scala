@@ -1036,7 +1036,7 @@ class PaideiaStateActor extends Actor with Logging {
         .box(b.ctx)
         .outBox,
       Stake(ConfKeys.im_paideia_contracts_staking_stake, Env.paideiaDaoKey)
-        .box(b.ctx)
+        .box(b.ctx, 1000000L)
         .outBox,
       Unstake(ConfKeys.im_paideia_contracts_staking_unstake, Env.paideiaDaoKey)
         .box(b.ctx)
