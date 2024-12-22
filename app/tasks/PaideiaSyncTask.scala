@@ -241,70 +241,39 @@ class PaideiaSyncTask @Inject() (
                     if (ut.inputs.forall(b => !usedInputs.contains(b.getId())))
                       try {
                         ut match {
-                          case t: EvaluateProposalBasicTransaction =>
-                            logger
-                              .info(
-                                s"""Attempting to sign transaction type: ${ut
-                                    .getClass()
-                                    .getCanonicalName()}"""
-                              )
-                            try {
-                              ctx.sendTransaction(
-                                ctx
-                                  .newProverBuilder()
-                                  .build()
-                                  .sign(ut.unsigned())
-                              )
-                              usedInputs =
-                                usedInputs ++ ut.inputs.map(b => b.getId())
-                            } catch {
-                              case e: Exception =>
-                                try {
-                                  (errorActor ! new UnsignedTransactionException(
-                                    Json
-                                      .toJson(
-                                        MUnsignedTransaction(ut.unsigned())
-                                      )
-                                      .toString(),
-                                    e
-                                  ))
-                                } catch {
-                                  case e: Exception => (errorActor ! e)
-                                }
-                            }
-                          case t: UpdateConfigTransaction =>
-                            logger
-                              .info(
-                                s"""Attempting to sign transaction type: ${ut
-                                    .getClass()
-                                    .getCanonicalName()}"""
-                              )
-                            try {
-                              ctx.sendTransaction(
-                                ctx
-                                  .newProverBuilder()
-                                  .build()
-                                  .sign(ut.unsigned())
-                              )
-                              usedInputs =
-                                usedInputs ++ ut.inputs.map(b => b.getId())
-                            } catch {
-                              case e: Exception =>
-                                try {
-                                  (errorActor ! new UnsignedTransactionException(
-                                    Json
-                                      .toJson(
-                                        MUnsignedTransaction(ut.unsigned())
-                                      )
-                                      .toString(),
-                                    e
-                                  ))
-                                } catch {
-                                  case e: Exception => (errorActor ! e)
-                                }
-                            }
-                          case _ =>
+                          case _: EmitTransaction =>
                             logger.info("Skipping emit tx for now")
+                          case t: PaideiaTransaction =>
+                            logger
+                              .info(
+                                s"""Attempting to sign transaction type: ${ut
+                                    .getClass()
+                                    .getCanonicalName()}"""
+                              )
+                            try {
+                              ctx.sendTransaction(
+                                ctx
+                                  .newProverBuilder()
+                                  .build()
+                                  .sign(ut.unsigned())
+                              )
+                              usedInputs =
+                                usedInputs ++ ut.inputs.map(b => b.getId())
+                            } catch {
+                              case e: Exception =>
+                                try {
+                                  (errorActor ! new UnsignedTransactionException(
+                                    Json
+                                      .toJson(
+                                        MUnsignedTransaction(ut.unsigned())
+                                      )
+                                      .toString(),
+                                    e
+                                  ))
+                                } catch {
+                                  case e: Exception => (errorActor ! e)
+                                }
+                            }
                         }
                       } catch {
                         case e: Exception => (errorActor ! e)
