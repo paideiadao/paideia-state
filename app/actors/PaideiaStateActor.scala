@@ -668,8 +668,10 @@ class PaideiaStateActor extends Actor with Logging {
         )(0)
       )
       DaoStakeInfo(
-        TotalStakingState(g.daoKey).currentStakingState.totalStaked(),
-        TotalStakingState(g.daoKey).currentStakingState.stakers(),
+        TotalStakingState(g.daoKey).currentStakingState
+          .totalStaked(Some(stakeStateBox.stateDigest)),
+        TotalStakingState(g.daoKey).currentStakingState
+          .stakers(Some(stakeStateBox.stateDigest)),
         stakeStateBox.profit,
         stakeStateBox.voted,
         stakeStateBox.votedTotal,
