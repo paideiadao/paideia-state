@@ -241,8 +241,6 @@ class PaideiaSyncTask @Inject() (
                     if (ut.inputs.forall(b => !usedInputs.contains(b.getId())))
                       try {
                         ut match {
-                          case _: EmitTransaction =>
-                            logger.info("Skipping emit tx for now")
                           case t: PaideiaTransaction =>
                             logger
                               .info(
