@@ -171,7 +171,7 @@ class DAOController @Inject() (
                 createDAO.footerEnabled,
                 createDAO.theme,
                 createDAO.daoGovernanceTokenId,
-                createDAO.stakePoolSize,
+                0L,
                 createDAO.governanceType,
                 createDAO.quorum,
                 createDAO.threshold,
