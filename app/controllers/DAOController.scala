@@ -74,7 +74,7 @@ class DAOController @Inject() (
   def getDAOProposals(daoKey: String) = Action.async {
     implicit request: Request[AnyContent] =>
       (paideiaActor ? GetDAOProposals(daoKey))
-        .mapTo[Try[List[(Int, String, Int)]]]
+        .mapTo[Try[List[(Int, String, Int, String)]]]
         .map(proposalListTry =>
           proposalListTry match {
             case Success(proposalList) =>
@@ -84,7 +84,8 @@ class DAOController @Inject() (
                     ProposalBase(
                       p._1,
                       p._2,
-                      p._3
+                      p._3,
+                      p._4
                     )
                   )
                 )

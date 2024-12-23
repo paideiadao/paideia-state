@@ -10,7 +10,8 @@ final case class ProposalVote(
 final case class ProposalBase(
     proposalIndex: Int,
     proposalName: String,
-    proposalHeight: Int
+    proposalHeight: Int,
+    proposalBoxId: String
 )
 
 object ProposalBase {

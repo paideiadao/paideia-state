@@ -418,7 +418,9 @@ class PaideiaStateActor extends Actor with Logging {
       }
     }
 
-  def getDAOProposals(g: GetDAOProposals): Try[List[(Int, String, Int)]] =
+  def getDAOProposals(
+      g: GetDAOProposals
+  ): Try[List[(Int, String, Int, String)]] =
     Try {
       if (syncing)
         throw new Exception(
@@ -454,7 +456,8 @@ class PaideiaStateActor extends Actor with Logging {
           (
             p.proposalIndex,
             p.name,
-            pBox.map(_.getCreationHeight()).getOrElse(0)
+            pBox.map(_.getCreationHeight()).getOrElse(0),
+            pBox.map(_.getId().toString()).getOrElse("")
           )
         })
         .toList
