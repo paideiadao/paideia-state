@@ -59,7 +59,7 @@ class DAOController @Inject() (
 
   def getAllDAOs = Action.async { implicit request: Request[AnyContent] =>
     (paideiaActor ? GetAllDAOs())
-      .mapTo[Try[HashMap[String, (String, Int)]]]
+      .mapTo[Try[HashMap[String, (String, Int, String)]]]
       .map(daoMapTry =>
         daoMapTry match {
           case Success(daoMap) => Ok(Json.toJson(daoMap))
