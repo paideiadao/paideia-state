@@ -412,7 +412,8 @@ class PaideiaStateActor extends Actor with Logging {
               .map((kv: (ErgoId, VoteRecord)) =>
                 ProposalVote(kv._1.toString(), kv._2.votes.toList)
               )
-              .toList
+              .toList,
+            proposalBox.getId().toString()
           )
         case _ => throw new Exception("Unknown proposal type")
       }
