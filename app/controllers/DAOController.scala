@@ -199,7 +199,10 @@ class DAOController @Inject() (
                                     .asJava,
                                   _ctx
                                 )
-                                .withAmountToSpend(outBox.getValue())
+                                .withAmountToSpend(
+                                  outBox.getValue() + Env.conf
+                                    .getLong("uiFeeCreateDAO")
+                                )
                                 .withTokensToSpend(outBox.getTokens())
                                 .buildTxWithDefaultInputs(tb =>
                                   tb.addOutputs(
