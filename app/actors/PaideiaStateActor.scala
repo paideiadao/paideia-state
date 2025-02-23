@@ -606,17 +606,21 @@ class PaideiaStateActor extends Actor with Logging {
           "Paideia state is currently syncing, try again some time later."
         )
 
-      val stakingStateContract = Paideia.instantiateContractInstance(
+      val stakeStateNFT = new ErgoId(
         Paideia
-          .getConfig(g.daoKey)(ConfKeys.im_paideia_contracts_staking_state)
-          .asInstanceOf[PaideiaContractSignature]
-          .withDaoKey(g.daoKey)
-      )
+          .getConfig(g.daoKey)
+          .getArray[Byte](ConfKeys.im_paideia_staking_state_tokenid)
+      ).toString()
       val latestUtxo = StakeStateBox.fromInputBox(
         g.ctx,
-        stakingStateContract.boxes(
-          stakingStateContract.getUtxoSet.toList(0)
-        )
+        Paideia.getBox(
+          new FilterLeaf[String](
+            FilterType.FTEQ,
+            stakeStateNFT,
+            CompareField.ASSET,
+            0
+          )
+        )(0)
       )
       val stakeMap =
         TotalStakingState(g.daoKey).currentStakingState.stakeRecords
