@@ -318,37 +318,20 @@ class PaideiaSyncTask @Inject() (
 
           var virtualCurrentHeight = currentHeight
 
-          var blockAwaitable = Future {
+          while (virtualCurrentHeight <= nodeHeight) {
+            // TODO: keep track of headerids to avoid fetching the same block multiple times
             val blockHeaderId = datasource
               .getNodeBlocksApi()
-              .getFullBlockAt(virtualCurrentHeight)
+              .getFullBlockAt(virtualCurrentHeight + 1)
               .execute()
               .body()
               .get(0);
-            datasource
-              .getNodeBlocksApi()
-              .getFullBlockById(blockHeaderId)
-              .execute()
-              .body()
-          };
-
-          while (virtualCurrentHeight <= nodeHeight) {
             val fullBlock =
-              Await.result(blockAwaitable, 20.seconds)
-            if (virtualCurrentHeight + 1 < nodeHeight)
-              blockAwaitable = Future {
-                val blockHeaderId = datasource
-                  .getNodeBlocksApi()
-                  .getFullBlockAt(virtualCurrentHeight + 1)
-                  .execute()
-                  .body()
-                  .get(0);
-                datasource
-                  .getNodeBlocksApi()
-                  .getFullBlockById(blockHeaderId)
-                  .execute()
-                  .body()
-              };
+              datasource
+                .getNodeBlocksApi()
+                .getFullBlockById(blockHeaderId)
+                .execute()
+                .body();
             val txs = fullBlock
               .getBlockTransactions()
               .getTransactions()
