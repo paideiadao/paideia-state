@@ -409,6 +409,7 @@ class PaideiaSyncTask @Inject() (
 
           mempoolTransactions.foreach(kv =>
             if (!newMempoolTransactions.contains(kv._1)) {
+              // TODO only rollback transactions that are relevant (paideiaeventresponse.status >= 1)
               logger.info(
                 s"""Rolling back mempool transaction: ${kv._1}"""
               )
@@ -533,37 +534,19 @@ class PaideiaSyncTask @Inject() (
           logger.info(s"""Node height: ${nodeHeight
               .toString()} Current height: ${currentHeight.toString()}""")
 
-          var blockAwaitable = Future {
+          while (currentHeight < (nodeHeight - virtualMempoolHeight)) {
             val blockHeaderId = datasource
               .getNodeBlocksApi()
               .getFullBlockAt(currentHeight)
               .execute()
               .body()
               .get(0);
-            datasource
-              .getNodeBlocksApi()
-              .getFullBlockById(blockHeaderId)
-              .execute()
-              .body()
-          };
-
-          while (currentHeight < (nodeHeight - virtualMempoolHeight)) {
             val fullBlock =
-              Await.result(blockAwaitable, 20.seconds)
-            if (currentHeight + 1 < (nodeHeight - virtualMempoolHeight))
-              blockAwaitable = Future {
-                val blockHeaderId = datasource
-                  .getNodeBlocksApi()
-                  .getFullBlockAt(currentHeight + 1)
-                  .execute()
-                  .body()
-                  .get(0);
-                datasource
-                  .getNodeBlocksApi()
-                  .getFullBlockById(blockHeaderId)
-                  .execute()
-                  .body()
-              };
+              datasource
+                .getNodeBlocksApi()
+                .getFullBlockById(blockHeaderId)
+                .execute()
+                .body();
             val txs = fullBlock
               .getBlockTransactions()
               .getTransactions()
