@@ -355,6 +355,9 @@ class PaideiaSyncTask @Inject() (
               .asScala
             txs.foreach(et => {
               if (!mempoolTransactions.contains(et.getId())) {
+                logger.info(
+                  s"""Syncing virtual mempool transaction: ${et.getId()}"""
+                )
                 Await.result(
                   (paideiaActor ? BlockchainEvent(
                     TransactionEvent(ctx, true, et),
@@ -383,10 +386,6 @@ class PaideiaSyncTask @Inject() (
                 .execute()
                 .body()
                 .getFullHeight()
-            if (virtualCurrentHeight % 100 == 0)
-              logger.info(
-                s"""Syncer current height: ${virtualCurrentHeight.toString}"""
-              )
           }
 
           while (limit == resultSize) {
@@ -400,6 +399,9 @@ class PaideiaSyncTask @Inject() (
             offset += limit
             memTransactions.forEach(t => {
               if (!mempoolTransactions.contains(t.getId())) {
+                logger.info(
+                  s"""Syncing mempool transaction from mempool: ${t.getId()}"""
+                )
                 Await.result(
                   (paideiaActor ? BlockchainEvent(
                     TransactionEvent(ctx, true, t),
@@ -424,6 +426,9 @@ class PaideiaSyncTask @Inject() (
 
           mempoolTransactions.foreach(kv =>
             if (!newMempoolTransactions.contains(kv._1)) {
+              logger.info(
+                s"""Rolling back mempool transaction: ${kv._1}"""
+              )
               Await.result(
                 (paideiaActor ? BlockchainEvent(
                   TransactionEvent(ctx, true, kv._2, rollback = true),
