@@ -322,7 +322,7 @@ class PaideiaSyncTask @Inject() (
             // TODO: keep track of headerids to avoid fetching the same block multiple times
             val blockHeaderId = datasource
               .getNodeBlocksApi()
-              .getFullBlockAt(virtualCurrentHeight + 1)
+              .getFullBlockAt(virtualCurrentHeight)
               .execute()
               .body()
               .get(0);
