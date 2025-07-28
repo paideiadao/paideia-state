@@ -332,7 +332,7 @@ class PaideiaSyncTask @Inject() (
               .body()
           };
 
-          while (virtualCurrentHeight < nodeHeight) {
+          while (virtualCurrentHeight <= nodeHeight) {
             val fullBlock =
               Await.result(blockAwaitable, 20.seconds)
             if (virtualCurrentHeight + 1 < nodeHeight)
