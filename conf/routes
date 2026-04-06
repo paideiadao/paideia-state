@@ -3,6 +3,9 @@
 # https://www.playframework.com/documentation/latest/ScalaRouting
 # ~~~~
 
+# Health check
+GET     /health                     controllers.HealthController.health
+
 # An example controller showing a sample home page
 POST    /dao/bootstrap              controllers.DAOController.bootstrap
 POST    /dao/                       controllers.DAOController.daoCreate
