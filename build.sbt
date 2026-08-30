@@ -20,9 +20,10 @@ libraryDependencies += "org.scalatestplus.play" %% "scalatestplus-play" % "5.0.0
 libraryDependencies += "im.paideia" %% "paideia-sdk" % "1.0.0-rc4-SNAPSHOT"
 
 // org.ethereum:leveldbjni-all (transitive via plasma-toolkit) is not on any public repo;
-// io.github.tronprotocol publishes the same fork.
+// com.halibobor bundles LevelDB 1.23, which reads the .ldb files written by the org.ethereum build (1.18)
+// that production ran; io.github.tronprotocol bundles an older LevelDB that only knows .sst files.
 excludeDependencies += ExclusionRule("org.ethereum", "leveldbjni-all")
-libraryDependencies += "io.github.tronprotocol" % "leveldbjni-all" % "1.18.3"
+libraryDependencies += "com.halibobor" % "leveldbjni-all" % "1.23.2"
 
 // ergo-wallet 6.0.0 declares circe 0.13 while sigma-state 6.0.6 declares 0.14; upstream appkit ships that mix.
 ThisBuild / evictionErrorLevel := Level.Warn
