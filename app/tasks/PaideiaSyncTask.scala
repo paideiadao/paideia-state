@@ -123,30 +123,77 @@ class PaideiaSyncTask @Inject() (
       syncMempool(ergoClient)
 
       val zContext: ZContext = new ZContext()
-      val socket = zContext.createSocket(SocketType.SUB)
-      val zeroMQIP = Env.conf.getString("zmqHost")
-      val zeroMQPort = Env.conf.getString("zmqPort")
-      socket.connect(f"tcp://${zeroMQIP}:${zeroMQPort}")
-      socket.subscribe("mempool")
-      socket.subscribe("newBlock")
+      try {
+        val socket = zContext.createSocket(SocketType.SUB)
+        val zeroMQIP = Env.conf.getString("zmqHost")
+        val zeroMQPort = Env.conf.getString("zmqPort")
+        socket.connect(f"tcp://${zeroMQIP}:${zeroMQPort}")
+        socket.subscribe("mempool")
+        socket.subscribe("newBlock")
+        socket.setReceiveTimeOut(180000)
 
-      generateTransactions(ergoClient)
+        generateTransactions(ergoClient)
 
-      while (true) {
-        val message = socket.recvStr()
-        if (message == "newBlock") {
-          logger.info("New block")
-          val blockHeader = socket.recvStr()
-          syncRemainingBlocks(ergoClient)
-          syncMempool(ergoClient)
-          generateTransactions(ergoClient)
+        var consecutiveTimeouts = 0
+
+        while (true) {
+          val message = socket.recvStr()
+          if (message == null) {
+            consecutiveTimeouts += 1
+            logger.info(
+              "No ZMQ message for 3 minutes, running fallback poll"
+            )
+            try {
+              syncRemainingBlocks(ergoClient)
+              syncMempool(ergoClient)
+              generateTransactions(ergoClient)
+            } catch {
+              case e: Exception =>
+                logger.error(e.getStackTrace().map(_.toString()).mkString)
+                logger.error(e.getMessage(), e)
+            }
+            if (consecutiveTimeouts >= 10) {
+              throw new RuntimeException(
+                "ZMQ subscription appears dead, restarting sync task"
+              )
+            }
+          } else {
+            consecutiveTimeouts = 0
+            try {
+              if (message == "newBlock") {
+                logger.info("New block")
+                val blockHeader = socket.recvStr()
+                if (blockHeader == null) {
+                  logger.warn(
+                    "ZMQ payload frame for newBlock was null, skipping"
+                  )
+                } else {
+                  syncRemainingBlocks(ergoClient)
+                  syncMempool(ergoClient)
+                  generateTransactions(ergoClient)
+                }
+              }
+              if (message == "mempool") {
+                logger.info("New mempool transaction")
+                val transactionId = socket.recvStr()
+                if (transactionId == null) {
+                  logger.warn(
+                    "ZMQ payload frame for mempool was null, skipping"
+                  )
+                } else {
+                  if (syncMempoolTransaction(ergoClient, transactionId))
+                    generateTransactions(ergoClient)
+                }
+              }
+            } catch {
+              case e: Exception =>
+                logger.error(e.getStackTrace().map(_.toString()).mkString)
+                logger.error(e.getMessage(), e)
+            }
+          }
         }
-        if (message == "mempool") {
-          logger.info("New mempool transaction")
-          val transactionId = socket.recvStr()
-          if (syncMempoolTransaction(ergoClient, transactionId))
-            generateTransactions(ergoClient)
-        }
+      } finally {
+        zContext.close()
       }
 
     } catch {
@@ -156,6 +203,56 @@ class PaideiaSyncTask @Inject() (
       }
     }
   )
+
+  private def nodeCall[T](
+      desc: String,
+      maxAttempts: Int = 5,
+      valid: T => Boolean = (_: T) => true
+  )(call: => retrofit2.Call[T]): T = {
+    var attempt = 1
+    var lastException: Option[Exception] = None
+    var lastErrorMessage: String = "unknown error"
+    while (attempt <= maxAttempts) {
+      try {
+        val resp = call.execute()
+        if (resp.isSuccessful() && resp.body() != null && valid(resp.body())) {
+          return resp.body()
+        } else {
+          lastException = None
+          lastErrorMessage =
+            if (!resp.isSuccessful())
+              s"HTTP ${resp.code()}: ${resp.message()}"
+            else if (resp.body() == null)
+              s"HTTP ${resp.code()}: empty body"
+            else
+              s"HTTP ${resp.code()}: invalid body"
+        }
+      } catch {
+        case e: Exception =>
+          lastException = Some(e)
+          lastErrorMessage = e.getMessage()
+      }
+      logger.warn(
+        s"Node call '$desc' failed (attempt $attempt/$maxAttempts): $lastErrorMessage"
+      )
+      if (attempt < maxAttempts) {
+        val backoffSeconds = math.min(8, math.pow(2, attempt - 1).toInt)
+        Thread.sleep(backoffSeconds * 1000L)
+      }
+      attempt += 1
+    }
+    lastException match {
+      case Some(e) =>
+        throw new RuntimeException(
+          s"Node call failed after $maxAttempts attempts: $desc: $lastErrorMessage",
+          e
+        )
+      case None =>
+        throw new RuntimeException(
+          s"Node call failed after $maxAttempts attempts: $desc: $lastErrorMessage"
+        )
+    }
+  }
 
   def syncMempoolTransaction(
       ergoClient: ErgoClient,
@@ -309,29 +406,24 @@ class PaideiaSyncTask @Inject() (
             mutable.HashMap[String, ErgoTransaction]()
 
           var nodeHeight =
-            datasource
-              .getNodeInfoApi()
-              .getNodeInfo()
-              .execute()
-              .body()
-              .getFullHeight()
+            nodeCall[org.ergoplatform.restapi.client.NodeInfo]("getNodeInfo")(
+              datasource.getNodeInfoApi().getNodeInfo()
+            ).getFullHeight()
 
           var virtualCurrentHeight = currentHeight
 
           while (virtualCurrentHeight <= nodeHeight) {
             // TODO: keep track of headerids to avoid fetching the same block multiple times
-            val blockHeaderId = datasource
-              .getNodeBlocksApi()
-              .getFullBlockAt(virtualCurrentHeight)
-              .execute()
-              .body()
-              .get(0);
+            val blockHeaderId = nodeCall(
+              s"getFullBlockAt($virtualCurrentHeight)",
+              valid = (l: java.util.List[String]) => !l.isEmpty
+            )(
+              datasource.getNodeBlocksApi().getFullBlockAt(virtualCurrentHeight)
+            ).get(0);
             val fullBlock =
-              datasource
-                .getNodeBlocksApi()
-                .getFullBlockById(blockHeaderId)
-                .execute()
-                .body();
+              nodeCall[org.ergoplatform.restapi.client.FullBlock]("getFullBlockById")(
+                datasource.getNodeBlocksApi().getFullBlockById(blockHeaderId)
+              );
             val txs = fullBlock
               .getBlockTransactions()
               .getTransactions()
@@ -363,21 +455,18 @@ class PaideiaSyncTask @Inject() (
             })
             virtualCurrentHeight += 1
             if (virtualCurrentHeight >= nodeHeight)
-              nodeHeight = datasource
-                .getNodeInfoApi()
-                .getNodeInfo()
-                .execute()
-                .body()
-                .getFullHeight()
+              nodeHeight = nodeCall[org.ergoplatform.restapi.client.NodeInfo]("getNodeInfo")(
+                datasource.getNodeInfoApi().getNodeInfo()
+              ).getFullHeight()
           }
 
           while (limit == resultSize) {
             val memTransactions =
-              datasource
-                .getNodeTransactionsApi()
-                .getUnconfirmedTransactions(limit, offset)
-                .execute()
-                .body()
+              nodeCall[org.ergoplatform.restapi.client.Transactions]("getUnconfirmedTransactions")(
+                datasource
+                  .getNodeTransactionsApi()
+                  .getUnconfirmedTransactions(limit, offset)
+              )
             resultSize = memTransactions.size()
             offset += limit
             memTransactions.forEach(t => {
@@ -524,29 +613,24 @@ class PaideiaSyncTask @Inject() (
               .asInstanceOf[NodeAndExplorerDataSourceImpl]
           val ctx = _ctx.asInstanceOf[BlockchainContextImpl]
           var nodeHeight =
-            datasource
-              .getNodeInfoApi()
-              .getNodeInfo()
-              .execute()
-              .body()
-              .getFullHeight()
+            nodeCall[org.ergoplatform.restapi.client.NodeInfo]("getNodeInfo")(
+              datasource.getNodeInfoApi().getNodeInfo()
+            ).getFullHeight()
 
           logger.info(s"""Node height: ${nodeHeight
               .toString()} Current height: ${currentHeight.toString()}""")
 
           while (currentHeight < (nodeHeight - virtualMempoolHeight)) {
-            val blockHeaderId = datasource
-              .getNodeBlocksApi()
-              .getFullBlockAt(currentHeight)
-              .execute()
-              .body()
-              .get(0);
+            val blockHeaderId = nodeCall(
+              s"getFullBlockAt($currentHeight)",
+              valid = (l: java.util.List[String]) => !l.isEmpty
+            )(
+              datasource.getNodeBlocksApi().getFullBlockAt(currentHeight)
+            ).get(0);
             val fullBlock =
-              datasource
-                .getNodeBlocksApi()
-                .getFullBlockById(blockHeaderId)
-                .execute()
-                .body();
+              nodeCall[org.ergoplatform.restapi.client.FullBlock]("getFullBlockById")(
+                datasource.getNodeBlocksApi().getFullBlockById(blockHeaderId)
+              );
             val txs = fullBlock
               .getBlockTransactions()
               .getTransactions()
@@ -587,12 +671,9 @@ class PaideiaSyncTask @Inject() (
             })
             currentHeight += 1
             if (currentHeight >= (nodeHeight - virtualMempoolHeight))
-              nodeHeight = datasource
-                .getNodeInfoApi()
-                .getNodeInfo()
-                .execute()
-                .body()
-                .getFullHeight()
+              nodeHeight = nodeCall[org.ergoplatform.restapi.client.NodeInfo]("getNodeInfo")(
+                datasource.getNodeInfoApi().getNodeInfo()
+              ).getFullHeight()
             if (currentHeight % 100 == 0)
               logger.info(
                 s"""Syncer current height: ${currentHeight.toString}"""
