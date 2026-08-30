@@ -4,7 +4,12 @@ services:
 
   paideia-state:
     container_name: paideia-state-main
-    image: paideia-state-main:latest
+    # Published by .github/workflows/docker.yml; `docker compose pull` fetches it.
+    # `docker compose build` still builds locally (needs ../paideia-sdk checked out).
+    image: ghcr.io/paideiadao/paideia-state:latest
+    build:
+      context: ..
+      dockerfile: paideia-state/Dockerfile
     env_file: .env
     volumes:
       - ./transaction_archive:/opt/docker/transaction_archive
