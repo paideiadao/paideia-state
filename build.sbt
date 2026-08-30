@@ -17,7 +17,15 @@ dockerBaseImage := "openjdk:11"
 
 libraryDependencies += guice
 libraryDependencies += "org.scalatestplus.play" %% "scalatestplus-play" % "5.0.0" % Test
-libraryDependencies += "im.paideia" %% "paideia-sdk" % "1.0.0-rc3+20-03bdf8cb-SNAPSHOT"
+libraryDependencies += "im.paideia" %% "paideia-sdk" % "1.0.0-rc4-SNAPSHOT"
+
+// org.ethereum:leveldbjni-all (transitive via plasma-toolkit) is not on any public repo;
+// io.github.tronprotocol publishes the same fork.
+excludeDependencies += ExclusionRule("org.ethereum", "leveldbjni-all")
+libraryDependencies += "io.github.tronprotocol" % "leveldbjni-all" % "1.18.3"
+
+// ergo-wallet 6.0.0 declares circe 0.13 while sigma-state 6.0.6 declares 0.14; upstream appkit ships that mix.
+ThisBuild / evictionErrorLevel := Level.Warn
 
 dependencyOverrides ++= Seq(
   "org.scala-lang.modules" %% "scala-parser-combinators" % "1.1.2",
@@ -32,14 +40,6 @@ libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-slf4j" % "2.5.19",
   "ch.qos.logback" % "logback-classic" % "1.2.3",
   "org.zeromq" % "jeromq" % "0.5.3"
-)
-
-resolvers ++= Seq(
-  "Sonatype Releases" at "https://oss.sonatype.org/content/repositories/releases/",
-  "SonaType" at "https://oss.sonatype.org/content/groups/public",
-  "Sonatype Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots/",
-  "Sonatype Snapshots S1" at "https://s01.oss.sonatype.org/content/repositories/snapshots/",
-  "Bintray" at "https://jcenter.bintray.com/"
 )
 
 Universal / javaOptions ++= Seq(

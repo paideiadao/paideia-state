@@ -1,0 +1,17 @@
+# Context is the workspace root; only paideia-sdk and paideia-state are needed.
+*
+!paideia-sdk/**
+!paideia-state/**
+**/.git
+**/.bloop
+**/.bsp
+**/.metals
+**/target
+**/logs
+**/*.log
+paideia-state/.env
+paideia-state/daoconfigs
+paideia-state/stakingStates
+paideia-state/proposals
+paideia-state/errors
+paideia-state/transaction_archive
