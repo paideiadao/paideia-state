@@ -96,13 +96,18 @@ sanitize_endpoint() {
 }
 
 fetch_and_normalize() {
-  # $1 = url, $2 = output file. Pretty-prints JSON (sorted keys) if the body
-  # parses as JSON, otherwise saves the raw body.
-  local url="$1" outfile="$2" body
+  # $1 = url, $2 = output file, $3 = endpoint path. Pretty-prints JSON (sorted
+  # keys) if the body parses as JSON, otherwise saves the raw body.
+  # /health is a liveness check whose body carries instance-specific sync
+  # status (heights, lag), so only its "status" field is compared.
+  local url="$1" outfile="$2" ep="${3:-}" body filter
   body="$(curl -s -m 30 "${url}" || true)"
-  if ! printf '%s' "${body}" \
-      | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin), sort_keys=True, indent=1))' \
-      >"${outfile}" 2>/dev/null; then
+  if [[ "${ep}" == "/health" ]]; then
+    filter='import json,sys; d=json.load(sys.stdin); print(json.dumps({"status": d.get("status")}, sort_keys=True, indent=1))'
+  else
+    filter='import json,sys; print(json.dumps(json.load(sys.stdin), sort_keys=True, indent=1))'
+  fi
+  if ! printf '%s' "${body}" | python3 -c "${filter}" >"${outfile}" 2>/dev/null; then
     printf '%s' "${body}" >"${outfile}"
   fi
 }
@@ -288,8 +293,8 @@ while [[ "${ATTEMPT}" -le "${MAX_ATTEMPTS}" ]]; do
 
   for ep in "${ENDPOINTS[@]}"; do
     name="$(sanitize_endpoint "${ep}")"
-    fetch_and_normalize "http://localhost:9125${ep}" "${RUN_DIR}/responses/replica/${name}"
-    fetch_and_normalize "${PROD_STATE}${ep}" "${RUN_DIR}/responses/prod/${name}"
+    fetch_and_normalize "http://localhost:9125${ep}" "${RUN_DIR}/responses/replica/${name}" "${ep}"
+    fetch_and_normalize "${PROD_STATE}${ep}" "${RUN_DIR}/responses/prod/${name}" "${ep}"
     TOTAL=$(( TOTAL + 1 ))
     if diff -q "${RUN_DIR}/responses/replica/${name}" "${RUN_DIR}/responses/prod/${name}" >/dev/null 2>&1; then
       MATCHES=$(( MATCHES + 1 ))
