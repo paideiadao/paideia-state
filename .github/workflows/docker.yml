@@ -29,7 +29,7 @@ on:
 
 env:
   IMAGE: ghcr.io/paideiadao/paideia-state
-  SDK_REF: 15ff26a7e0594cfb9a5583769144b450dbf9ccd4
+  SDK_REF: 7dc435325aad2427871b1462411f69f1aa1860dc
 
 jobs:
   build:
