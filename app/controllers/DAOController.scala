@@ -30,7 +30,6 @@ import models.BootstrapRequest
 import scala.util.Success
 import scala.util.Try
 import scala.util.Failure
-import scala.collection.mutable.HashMap
 import im.paideia.DAOConfigKey
 import im.paideia.DAOConfigValueDeserializer
 import models.ProposalBase
@@ -43,6 +42,7 @@ import models.DaoConfigValueEntry
 class DAOController @Inject() (
     @Named("paideia-state") paideiaActor: ActorRef,
     @Named("error-logging") errorActor: ActorRef,
+    service: services.PaideiaStateService,
     val controllerComponents: ControllerComponents
 )(implicit ec: ExecutionContext)
     extends BaseController
@@ -58,8 +58,7 @@ class DAOController @Inject() (
   )
 
   def getAllDAOs = Action.async { implicit request: Request[AnyContent] =>
-    (paideiaActor ? GetAllDAOs())
-      .mapTo[Try[HashMap[String, (String, Int, String)]]]
+    Future(service.getAllDAOs(GetAllDAOs()))
       .map(daoMapTry =>
         daoMapTry match {
           case Success(daoMap) => Ok(Json.toJson(daoMap))
@@ -73,8 +72,7 @@ class DAOController @Inject() (
 
   def getDAOProposals(daoKey: String) = Action.async {
     implicit request: Request[AnyContent] =>
-      (paideiaActor ? GetDAOProposals(daoKey))
-        .mapTo[Try[List[(Int, String, Int, String)]]]
+      Future(service.getDAOProposals(GetDAOProposals(daoKey)))
         .map(proposalListTry =>
           proposalListTry match {
             case Success(proposalList) =>
@@ -100,8 +98,7 @@ class DAOController @Inject() (
 
   def getDAOConfig(daoKey: String) = Action.async {
     implicit request: Request[AnyContent] =>
-      (paideiaActor ? GetDAOConfig(daoKey))
-        .mapTo[Try[Map[String, Array[Byte]]]]
+      Future(service.getDAOConfig(GetDAOConfig(daoKey)))
         .map(configMapTry =>
           configMapTry match {
             case Success(configMap) =>
@@ -128,8 +125,7 @@ class DAOController @Inject() (
 
   def getDAOTreasury(daoKey: String) = Action.async {
     implicit request: Request[AnyContent] =>
-      (paideiaActor ? GetDAOTreasury(daoKey))
-        .mapTo[Try[String]]
+      Future(service.getDAOTreasury(GetDAOTreasury(daoKey)))
         .map(addressTry =>
           addressTry match {
             case Success(address) =>
