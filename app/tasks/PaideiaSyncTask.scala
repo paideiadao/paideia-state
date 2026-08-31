@@ -471,6 +471,14 @@ class PaideiaSyncTask @Inject() (
                               usedInputs =
                                 usedInputs ++ ut.inputs.map(b => b.getId())
                             } catch {
+                              case e: Exception if TxRejection.isLostRace(
+                                    e.getMessage()
+                                  ) =>
+                                logger.info(
+                                  s"""Lost race submitting transaction type: ${ut
+                                      .getClass()
+                                      .getCanonicalName()}: ${e.getMessage()}"""
+                                )
                               case e: Exception =>
                                 try {
                                   (errorActor ! new UnsignedTransactionException(
