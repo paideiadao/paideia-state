@@ -36,6 +36,51 @@ queried at `GET /dao/<paideiaDaoKey>/config`.
 Every party operating an instance of the same protocol deployment must use the exact
 same genesis file.
 
+## Replay regression test
+
+`scripts/replay-regression.sh` is a behavior-preservation oracle: it runs a replica of
+this service against a fresh copy of prod's replay state, lets it sync to tip, and diffs
+its API responses against the live prod instance (the reference implementation) — the
+same technique used to verify the sync-loss-NPE and consolidate-box-size fixes before
+they shipped. A clean run means the change under test didn't alter observable DAO state.
+
+```bash
+scripts/replay-regression.sh [--no-build] [--keep] [--timeout MIN] [--data DIR]
+```
+
+- `--no-build` skips `docker compose build` and uses whatever `paideia-state:latest`
+  image is already local.
+- `--keep` keeps the run directory (copied state, container logs, saved API responses)
+  and its diagnostics even when the run passes; by default only a failing run's
+  directory is kept.
+- `--timeout MIN` bounds how long to wait for the replica to finish syncing (default 45).
+- `--data DIR` points at the prod data copy to replay from (default
+  `/home/luivatra/develop/paideia/.replay-test`).
+
+### Requirements
+
+- The prod Ergo node (`192.168.1.137:9053`) and prod state service
+  (`192.168.1.137:9124`) reachable on the LAN.
+- `../paideia-sdk` checked out next to this repo (needed to build the image, skip with
+  `--no-build` if you already have one).
+- ~2GB free disk for the per-run copy of the replay state and container images.
+- The data dir itself (`transaction_archive/`, `daoconfigs/`, `stakingStates/`,
+  `proposals/`, `errors/`) is populated by an `rsync` from
+  `luiserver:/opt/paideia/paideia-state-main` — see `../HANDOFF.md`. The harness always
+  works on a fresh `cp -a` of that data per run, since the replica mutates it in place.
+
+### Transaction-broadcast blocking
+
+The replica signs and would otherwise broadcast the transactions it generates (consolidation,
+proposal/vote processing, etc.) straight to the real Ergo node — unacceptable for a test run.
+So the replica is never pointed at the real node directly: `scripts/txblock-proxy.py`, a
+stdlib-only Python reverse proxy, sits between them on an isolated Docker network and forwards
+everything except `POST /transactions`, which it refuses with a `400` and logs loudly instead
+of relaying to the upstream node.
+
+A run's containers, network and (on success, without `--keep`) run directory are cleaned up
+automatically; container logs are always saved to the run directory before removal.
+
 ## Deployment
 
 Images are built by GitHub Actions (`.github/workflows/docker.yml`) and published to
