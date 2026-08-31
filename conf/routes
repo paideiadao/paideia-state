@@ -13,6 +13,7 @@ POST    /dao/                       controllers.DAOController.daoCreate
 GET     /dao                        controllers.DAOController.getAllDAOs
 GET     /dao/:daoKey/config         controllers.DAOController.getDAOConfig(daoKey: String)
 GET     /dao/:daoKey/treasury       controllers.DAOController.getDAOTreasury(daoKey: String)
+GET     /dao/:daoKey/treasury/health controllers.DAOController.getDAOTreasuryHealth(daoKey: String)
 GET     /dao/:daoKey/proposals      controllers.DAOController.getDAOProposals(daoKey: String)
 
 POST    /stake                      controllers.StakeController.stake

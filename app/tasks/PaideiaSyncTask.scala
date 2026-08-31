@@ -57,6 +57,10 @@ import org.zeromq.SocketType
 import org.ergoplatform.appkit.ErgoClient
 import im.paideia.governance.transactions.EvaluateProposalBasicTransaction
 import im.paideia.governance.transactions.UpdateConfigTransaction
+import im.paideia.common.contracts.TreasuryShortfallErgsException
+import im.paideia.common.contracts.TreasuryShortfallTokensException
+import services.PaideiaStateService
+import services.TreasuryShortfall
 
 class UnsignedTransactionException(
     val transactionJson: String,
@@ -72,10 +76,17 @@ class PaideiaSyncTask @Inject() (
     @Named("paideia-state") paideiaActor: ActorRef,
     @Named("paideia-archive") archiveActor: ActorRef,
     @Named("error-logging") errorActor: ActorRef,
-    actorSystem: ActorSystem
+    actorSystem: ActorSystem,
+    paideiaStateService: PaideiaStateService
 )(implicit
     ec: ExecutionContext
 ) extends Logging {
+
+  /** DAO keys with an active treasury shortfall as of the previous
+    * generateTransactions cycle, so transitions (detected/cleared) can be logged at
+    * info level only when the shortfall set actually changes, instead of every block.
+    */
+  private var previousShortfallDaoKeys: Set[String] = Set.empty
 
   implicit val timeout: Timeout = 25.seconds
 
@@ -594,9 +605,14 @@ class PaideiaSyncTask @Inject() (
                         case e: Exception => (errorActor ! e)
                       }
                   })
-                  resp.exceptions.map(e => {
-                    (errorActor ! e)
-                  })
+                  val (shortfallExceptions, otherExceptions) =
+                    resp.exceptions.partition {
+                      case _: TreasuryShortfallErgsException => true
+                      case _: TreasuryShortfallTokensException => true
+                      case _ => false
+                    }
+                  otherExceptions.foreach(e => (errorActor ! e))
+                  recordTreasuryShortfalls(shortfallExceptions)
                 }
                 case Failure(exception) =>
                   logger.error(exception.getMessage(), exception)
@@ -606,6 +622,37 @@ class PaideiaSyncTask @Inject() (
         )
       }
     })
+  }
+
+  /** Folds this cycle's treasury shortfall exceptions (already partitioned out of
+    * resp.exceptions by generateTransactions - these never reach errorActor, since
+    * for the currently deployed DAOs a treasury shortfall fires on essentially every
+    * block and would otherwise spam the error log) into a per-daoKey map and replaces
+    * the shared registry with it, so a DAO that recovers this cycle simply drops out.
+    * Logs a transition at info level only when the set of shortfall DAO keys changed
+    * since the previous cycle.
+    */
+  private def recordTreasuryShortfalls(shortfallExceptions: List[Throwable]): Unit = {
+    val cycleShortfalls = shortfallExceptions.foldLeft(
+      Map.empty[String, TreasuryShortfall]
+    )((acc, e) => PaideiaStateService.accumulateShortfall(acc, e, currentHeight))
+
+    val newShortfallDaoKeys = cycleShortfalls.keySet
+    (newShortfallDaoKeys -- previousShortfallDaoKeys).foreach { daoKey =>
+      val shortfall = cycleShortfalls(daoKey)
+      logger.info(
+        s"""treasury shortfall detected for dao ${daoKey}: short ${shortfall.missingNanoErgs
+            .getOrElse(0L)} nanoErg${if (shortfall.missingTokens.nonEmpty)
+            s", missing tokens: ${shortfall.missingTokens}"
+          else ""}"""
+      )
+    }
+    (previousShortfallDaoKeys -- newShortfallDaoKeys).foreach { daoKey =>
+      logger.info(s"""treasury shortfall cleared for dao ${daoKey}""")
+    }
+    previousShortfallDaoKeys = newShortfallDaoKeys
+
+    paideiaStateService.replaceTreasuryShortfalls(cycleShortfalls)
   }
 
   def syncMempool(

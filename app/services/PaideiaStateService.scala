@@ -46,6 +46,17 @@ import models.ProposalVote
 
 import actors.PaideiaStateActor._
 
+/** A DAO treasury's current shortfall, as last observed by PaideiaSyncTask.
+  * missingNanoErgs / missingTokens are `needed - found` (i.e. how much more the
+  * treasury would need to hold to cover the transaction that failed), never negative.
+  * `height` is the sync height at which this shortfall was last observed.
+  */
+case class TreasuryShortfall(
+    missingNanoErgs: Option[Long],
+    missingTokens: Map[String, Long],
+    height: Int
+)
+
 /** Read-only (and read-mostly) Paideia state accessors, moved out of PaideiaStateActor's
   * sync mailbox so API reads no longer queue behind sync's blockchain-event processing.
   * Guarded by a plain ReentrantReadWriteLock instead of an actor mailbox: readers run
@@ -72,6 +83,27 @@ class PaideiaStateService @Inject() () extends Logging {
   private val lock = new java.util.concurrent.locks.ReentrantReadWriteLock(true)
 
   @volatile var syncing: Boolean = true
+
+  /** Per-DAO treasury shortfalls, as observed on the most recently completed
+    * PaideiaSyncTask.generateTransactions cycle. Replaced wholesale each cycle (never
+    * mutated in place), so a DAO that recovers simply stops appearing in the map - no
+    * locking needed for readers since a single reference assignment is atomic and
+    * @volatile ensures visibility across threads.
+    */
+  @volatile private var treasuryShortfalls: Map[String, TreasuryShortfall] = Map.empty
+
+  /** Replaces the entire treasury shortfall registry with the given cycle's findings.
+    * Called once per PaideiaSyncTask.generateTransactions cycle.
+    */
+  def replaceTreasuryShortfalls(m: Map[String, TreasuryShortfall]): Unit =
+    treasuryShortfalls = m
+
+  /** The current treasury shortfall for a DAO, if any. Reads only the volatile
+    * registry - no read/write lock and no syncing check, so this stays available even
+    * while the sync task is still catching up.
+    */
+  def getTreasuryShortfall(daoKey: String): Option[TreasuryShortfall] =
+    treasuryShortfalls.get(daoKey)
 
   def withWriteLock[T](body: => T): T = {
     lock.writeLock().lock()
@@ -497,4 +529,62 @@ class PaideiaStateService @Inject() () extends Logging {
             )
       }
     }
+}
+
+object PaideiaStateService {
+
+  /** Folds a single exception raised while building this cycle's transactions into a
+    * per-daoKey shortfall accumulator, merging with anything already accumulated for
+    * that DAO this cycle (a DAO can hit both an ergs and a tokens shortfall, or the
+    * same shortfall kind more than once, within one cycle): the max missing ergs is
+    * kept, and token maps are merged keeping the max missing amount per token. Any
+    * exception that isn't one of the treasury shortfall types passes the accumulator
+    * through unchanged.
+    */
+  def accumulateShortfall(
+      acc: Map[String, TreasuryShortfall],
+      exception: Throwable,
+      height: Int
+  ): Map[String, TreasuryShortfall] =
+    exception match {
+      case e: TreasuryShortfallErgsException =>
+        val missing = math.max(0L, e.neededNanoErgs - e.foundNanoErgs)
+        val existing =
+          acc.getOrElse(e.daoKey, TreasuryShortfall(None, Map.empty, height))
+        acc.updated(
+          e.daoKey,
+          existing.copy(
+            missingNanoErgs =
+              Some(math.max(missing, existing.missingNanoErgs.getOrElse(0L))),
+            height = height
+          )
+        )
+      case e: TreasuryShortfallTokensException =>
+        val missing = e.neededTokens
+          .map { case (tokenId, needed) =>
+            tokenId -> math.max(0L, needed - e.foundTokens.getOrElse(tokenId, 0L))
+          }
+          .filter { case (_, amount) => amount > 0L }
+        val existing =
+          acc.getOrElse(e.daoKey, TreasuryShortfall(None, Map.empty, height))
+        acc.updated(
+          e.daoKey,
+          existing.copy(
+            missingTokens = mergeMaxTokenMaps(existing.missingTokens, missing),
+            height = height
+          )
+        )
+      case _ => acc
+    }
+
+  /** Merges two tokenId -> amount maps keeping, per token, the larger of the two
+    * amounts (falling back to 0 for a token absent from one side).
+    */
+  def mergeMaxTokenMaps(
+      a: Map[String, Long],
+      b: Map[String, Long]
+  ): Map[String, Long] =
+    (a.keySet ++ b.keySet)
+      .map(tokenId => tokenId -> math.max(a.getOrElse(tokenId, 0L), b.getOrElse(tokenId, 0L)))
+      .toMap
 }
