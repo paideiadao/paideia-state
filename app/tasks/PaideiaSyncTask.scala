@@ -5,6 +5,8 @@ import javax.inject.Named
 import akka.actor.ActorSystem
 import scala.concurrent.duration._
 import scala.concurrent.ExecutionContext
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 import akka.actor.ActorRef
 import org.ergoplatform.appkit.RestApiErgoClient
 import im.paideia.util.Env
@@ -79,9 +81,55 @@ class PaideiaSyncTask @Inject() (
 
   val virtualMempoolHeight: Int = 10
 
-  var currentHeight = Env.conf.getInt("syncStart")
-  var syncing = true
+  /** Number of blocks to fetch ahead of the block currently being processed by
+    * syncRemainingBlocks. Fetches run on a dedicated pool so the slow node HTTP
+    * round-trips overlap instead of serializing; processing itself stays strictly
+    * sequential and in height order.
+    */
+  val blockPrefetch: Int =
+    if (Env.conf.hasPath("blockPrefetch")) Env.conf.getInt("blockPrefetch") else 8
+
+  private val prefetchExecutorService = {
+    val threadCount = new AtomicInteger(0)
+    Executors.newFixedThreadPool(
+      blockPrefetch,
+      (r: Runnable) => {
+        val t = new Thread(r, s"block-prefetch-${threadCount.incrementAndGet()}")
+        t.setDaemon(true)
+        t
+      }
+    )
+  }
+
+  private val prefetchEc: ExecutionContext =
+    ExecutionContext.fromExecutorService(prefetchExecutorService)
+
+  /** headerId -> FullBlock, shared by the prefetcher and the virtual mempool loop
+    * so a block fetched by one is not re-fetched by the other. Bounded, evicts the
+    * oldest entry once full.
+    */
+  private val blockCache = new BoundedBlockCache(virtualMempoolHeight * 4)
+
+  @volatile var currentHeight = Env.conf.getInt("syncStart")
+  @volatile var syncing = true
+
+  /** Full height of the node as of the last getNodeInfo call, for /health and /ready. */
+  @volatile var lastNodeHeight: Int = 0
+
+  private def fetchNodeHeight(datasource: NodeAndExplorerDataSourceImpl): Int = {
+    val h = nodeCall[org.ergoplatform.restapi.client.NodeInfo]("getNodeInfo")(
+      datasource.getNodeInfoApi().getNodeInfo()
+    ).getFullHeight()
+    lastNodeHeight = h
+    h
+  }
   var mempoolTransactions = mutable.HashMap[String, ErgoTransaction]()
+
+  /** Mempool transactions already rolled back as orphans. They may linger in the node's
+    * mempool for a while; they must be neither re-rolled-back nor, once evicted, rolled back
+    * a second time.
+    */
+  val orphanedMempoolTxs = mutable.HashSet[String]()
 
   actorSystem.getScheduler.scheduleWithFixedDelay(
     initialDelay = 5.seconds,
@@ -254,6 +302,74 @@ class PaideiaSyncTask @Inject() (
     }
   }
 
+  /** Small bounded cache of headerId -> FullBlock, evicting the oldest entry once
+    * full. Written from prefetch-pool threads and read from the sync thread, so all
+    * access is synchronized.
+    */
+  private class BoundedBlockCache(maxSize: Int) {
+    private val entries =
+      new java.util.LinkedHashMap[String, org.ergoplatform.restapi.client.FullBlock]()
+
+    def put(headerId: String, block: org.ergoplatform.restapi.client.FullBlock): Unit =
+      synchronized {
+        entries.put(headerId, block)
+        if (entries.size() > maxSize) {
+          val it = entries.entrySet().iterator()
+          if (it.hasNext()) {
+            it.next()
+            it.remove()
+          }
+        }
+      }
+
+    def get(headerId: String): Option[org.ergoplatform.restapi.client.FullBlock] =
+      synchronized(Option(entries.get(headerId)))
+  }
+
+  /** Bounded lookahead window for syncRemainingBlocks: while height `h` is being
+    * processed, fetches for h+1 .. h+blockPrefetch run concurrently on the
+    * prefetch pool. Only ever accessed from the single sync-loop thread, so the
+    * window map itself needs no synchronization; fetched blocks are also fed into
+    * the shared BoundedBlockCache so syncMempool can reuse them.
+    */
+  private class BlockPrefetcher(
+      datasource: NodeAndExplorerDataSourceImpl,
+      cache: BoundedBlockCache
+  ) {
+    private val window =
+      mutable.Map.empty[Int, Future[org.ergoplatform.restapi.client.FullBlock]]
+
+    private def fetchBlock(height: Int): org.ergoplatform.restapi.client.FullBlock = {
+      val blockHeaderId = nodeCall(
+        s"getFullBlockAt($height)",
+        valid = (l: java.util.List[String]) => !l.isEmpty
+      )(
+        datasource.getNodeBlocksApi().getFullBlockAt(height)
+      ).get(0)
+      val fullBlock =
+        nodeCall[org.ergoplatform.restapi.client.FullBlock]("getFullBlockById")(
+          datasource.getNodeBlocksApi().getFullBlockById(blockHeaderId)
+        )
+      cache.put(blockHeaderId, fullBlock)
+      fullBlock
+    }
+
+    def ensurePrefetched(fromHeight: Int, upToHeightInclusive: Int): Unit =
+      (fromHeight to upToHeightInclusive).foreach { h =>
+        if (!window.contains(h)) {
+          window(h) = Future(fetchBlock(h))(prefetchEc)
+        }
+      }
+
+    def takeBlock(height: Int): org.ergoplatform.restapi.client.FullBlock =
+      window.remove(height) match {
+        case Some(fut) => Await.result(fut, 120.seconds)
+        case None      => fetchBlock(height)
+      }
+
+    def clear(): Unit = window.clear()
+  }
+
   def syncMempoolTransaction(
       ergoClient: ErgoClient,
       transactionId: String
@@ -406,24 +522,25 @@ class PaideiaSyncTask @Inject() (
             mutable.HashMap[String, ErgoTransaction]()
 
           var nodeHeight =
-            nodeCall[org.ergoplatform.restapi.client.NodeInfo]("getNodeInfo")(
-              datasource.getNodeInfoApi().getNodeInfo()
-            ).getFullHeight()
+            fetchNodeHeight(datasource)
 
           var virtualCurrentHeight = currentHeight
 
           while (virtualCurrentHeight <= nodeHeight) {
-            // TODO: keep track of headerids to avoid fetching the same block multiple times
             val blockHeaderId = nodeCall(
               s"getFullBlockAt($virtualCurrentHeight)",
               valid = (l: java.util.List[String]) => !l.isEmpty
             )(
               datasource.getNodeBlocksApi().getFullBlockAt(virtualCurrentHeight)
             ).get(0);
-            val fullBlock =
-              nodeCall[org.ergoplatform.restapi.client.FullBlock]("getFullBlockById")(
-                datasource.getNodeBlocksApi().getFullBlockById(blockHeaderId)
-              );
+            val fullBlock = blockCache.get(blockHeaderId).getOrElse {
+              val fetched =
+                nodeCall[org.ergoplatform.restapi.client.FullBlock]("getFullBlockById")(
+                  datasource.getNodeBlocksApi().getFullBlockById(blockHeaderId)
+                )
+              blockCache.put(blockHeaderId, fetched)
+              fetched
+            }
             val txs = fullBlock
               .getBlockTransactions()
               .getTransactions()
@@ -455,9 +572,7 @@ class PaideiaSyncTask @Inject() (
             })
             virtualCurrentHeight += 1
             if (virtualCurrentHeight >= nodeHeight)
-              nodeHeight = nodeCall[org.ergoplatform.restapi.client.NodeInfo]("getNodeInfo")(
-                datasource.getNodeInfoApi().getNodeInfo()
-              ).getFullHeight()
+              nodeHeight = fetchNodeHeight(datasource)
           }
 
           while (limit == resultSize) {
@@ -498,6 +613,11 @@ class PaideiaSyncTask @Inject() (
 
           mempoolTransactions.foreach(kv =>
             if (!newMempoolTransactions.contains(kv._1)) {
+              if (orphanedMempoolTxs.remove(kv._1)) {
+                logger.info(
+                  s"""Orphan transaction left mempool (already rolled back): ${kv._1}"""
+                )
+              } else {
               // TODO only rollback transactions that are relevant (paideiaeventresponse.status >= 1)
               logger.info(
                 s"""Rolling back mempool transaction: ${kv._1}"""
@@ -519,6 +639,7 @@ class PaideiaSyncTask @Inject() (
                   ),
                 5.seconds
               )
+              }
             }
           )
 
@@ -526,12 +647,15 @@ class PaideiaSyncTask @Inject() (
 
           val orphanedTxs = mutable.Buffer[String]()
           val orphanedOutputs = mutable.Buffer[String]()
+          orphanedOutputs ++= orphanedMempoolTxs.toSeq
+            .flatMap(mempoolTransactions.get)
+            .flatMap(_.getOutputs().asScala.map(_.getBoxId()))
           var foundNewOrphan = true
 
           while (foundNewOrphan) {
             foundNewOrphan = false
             mempoolTransactions.foreach(kv => {
-              if (!orphanedTxs.contains(kv._1))
+              if (!orphanedTxs.contains(kv._1) && !orphanedMempoolTxs.contains(kv._1))
                 if (
                   !kv._2
                     .getInputs()
@@ -572,6 +696,7 @@ class PaideiaSyncTask @Inject() (
             })
           }
 
+          orphanedMempoolTxs ++= orphanedTxs
           orphanedTxs.foreach(txId =>
             Await.result(
               (paideiaActor ? BlockchainEvent(
@@ -613,71 +738,68 @@ class PaideiaSyncTask @Inject() (
               .asInstanceOf[NodeAndExplorerDataSourceImpl]
           val ctx = _ctx.asInstanceOf[BlockchainContextImpl]
           var nodeHeight =
-            nodeCall[org.ergoplatform.restapi.client.NodeInfo]("getNodeInfo")(
-              datasource.getNodeInfoApi().getNodeInfo()
-            ).getFullHeight()
+            fetchNodeHeight(datasource)
 
           logger.info(s"""Node height: ${nodeHeight
               .toString()} Current height: ${currentHeight.toString()}""")
 
-          while (currentHeight < (nodeHeight - virtualMempoolHeight)) {
-            val blockHeaderId = nodeCall(
-              s"getFullBlockAt($currentHeight)",
-              valid = (l: java.util.List[String]) => !l.isEmpty
-            )(
-              datasource.getNodeBlocksApi().getFullBlockAt(currentHeight)
-            ).get(0);
-            val fullBlock =
-              nodeCall[org.ergoplatform.restapi.client.FullBlock]("getFullBlockById")(
-                datasource.getNodeBlocksApi().getFullBlockById(blockHeaderId)
-              );
-            val txs = fullBlock
-              .getBlockTransactions()
-              .getTransactions()
-              .asScala
-            txs.foreach(et => {
-              val event = TransactionEvent(
-                ctx,
-                false,
-                et,
-                fullBlock.getHeader().getHeight()
+          val prefetcher = new BlockPrefetcher(datasource, blockCache)
+          try {
+            while (currentHeight < (nodeHeight - virtualMempoolHeight)) {
+              val prefetchBound = math.min(
+                currentHeight + blockPrefetch,
+                nodeHeight - virtualMempoolHeight - 1
               )
-              Await.result(
-                (paideiaActor ? BlockchainEvent(
-                  event,
-                  syncing
-                ))
-                  .mapTo[Try[PaideiaEventResponse]]
-                  .map(per =>
-                    per match {
-                      case Success(resp) => {
-                        if (resp.status > 0) (archiveActor ? event)
-                        resp.exceptions
-                          .foreach(e => {
+              prefetcher.ensurePrefetched(currentHeight, prefetchBound)
+              val fullBlock = prefetcher.takeBlock(currentHeight)
+              val txs = fullBlock
+                .getBlockTransactions()
+                .getTransactions()
+                .asScala
+              txs.foreach(et => {
+                val event = TransactionEvent(
+                  ctx,
+                  false,
+                  et,
+                  fullBlock.getHeader().getHeight()
+                )
+                Await.result(
+                  (paideiaActor ? BlockchainEvent(
+                    event,
+                    syncing
+                  ))
+                    .mapTo[Try[PaideiaEventResponse]]
+                    .map(per =>
+                      per match {
+                        case Success(resp) => {
+                          if (resp.status > 0) (archiveActor ? event)
+                          resp.exceptions
+                            .foreach(e => {
 
-                            logger.error(e.getMessage(), e)
-                            throw e
+                              logger.error(e.getMessage(), e)
+                              throw e
 
-                          })
+                            })
+                        }
+
+                        case Failure(exception) =>
+                          logger.error(exception.getMessage(), exception)
+
                       }
-
-                      case Failure(exception) =>
-                        logger.error(exception.getMessage(), exception)
-
-                    }
-                  ),
-                30.seconds
-              )
-            })
-            currentHeight += 1
-            if (currentHeight >= (nodeHeight - virtualMempoolHeight))
-              nodeHeight = nodeCall[org.ergoplatform.restapi.client.NodeInfo]("getNodeInfo")(
-                datasource.getNodeInfoApi().getNodeInfo()
-              ).getFullHeight()
-            if (currentHeight % 100 == 0)
-              logger.info(
-                s"""Syncer current height: ${currentHeight.toString}"""
-              )
+                    ),
+                  30.seconds
+                )
+              })
+              currentHeight += 1
+              if (currentHeight >= (nodeHeight - virtualMempoolHeight))
+                nodeHeight = fetchNodeHeight(datasource)
+              if (currentHeight % 100 == 0)
+                logger.info(
+                  s"""Syncer current height: ${currentHeight.toString}"""
+                )
+            }
+          } finally {
+            prefetcher.clear()
           }
         }
       }

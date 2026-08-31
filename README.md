@@ -81,6 +81,14 @@ of relaying to the upstream node.
 A run's containers, network and (on success, without `--keep`) run directory are cleaned up
 automatically; container logs are always saved to the run directory before removal.
 
+## Health and readiness
+
+- `GET /health` — liveness. Always `200` while the process is up; the body carries
+  `syncing`, `currentHeight`, `nodeHeight` and `lag` for inspection.
+- `GET /ready` — readiness. `503` while the service is syncing (every other endpoint rejects
+  requests with a "currently syncing" error during that time), `200` once caught up. Point
+  load balancers, docker health checks and uptime monitors here, not at `/health`.
+
 ## Deployment
 
 Images are built by GitHub Actions (`.github/workflows/docker.yml`) and published to
