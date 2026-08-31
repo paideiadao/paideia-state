@@ -400,13 +400,24 @@ if [[ "${RESTART}" -eq 1 ]]; then
   RESTART_ELAPSED=$(( $(date +%s) - RESTART_T0 ))
   log "restart to ready: ${RESTART_ELAPSED}s"
 
-  if ! docker logs "${REPLICA_NAME}" 2>&1 | grep -q "Restored state at height"; then
+  # Capture to a file first: with pipefail, `docker logs | grep -q` reports failure
+  # when grep exits early and docker logs dies of SIGPIPE, even though the line exists.
+  RESTART_LOG="${RUN_DIR}/logs/replica-after-restart.log"
+  docker logs "${REPLICA_NAME}" >"${RESTART_LOG}" 2>&1 || true
+  if ! grep -q "Restored state at height" "${RESTART_LOG}"; then
     echo "ERROR: replica did not resume from a persisted checkpoint after restart - it fell back to a full archive replay instead. Restore-related log lines:" >&2
-    docker logs "${REPLICA_NAME}" 2>&1 | grep -i "restor\|checkpoint" >&2 || true
+    grep -i "restor\|checkpoint" "${RESTART_LOG}" >&2 || true
     FAILED=1
     exit 1
   fi
-  log "Confirmed replica resumed from a persisted checkpoint."
+  # ...and it must not have replayed the archive on top of the restored state.
+  if awk '/Restored state at height/{f=1; next} f && /transaction_archive\//{c++} END{exit (c>0)}' "${RESTART_LOG}"; then
+    log "Confirmed replica resumed from a persisted checkpoint without archive replay."
+  else
+    echo "ERROR: replica restored a checkpoint but then replayed the transaction archive on top of it." >&2
+    FAILED=1
+    exit 1
+  fi
 
   log "Re-running diff phase against the restarted replica..."
   run_diff_phase

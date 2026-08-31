@@ -254,7 +254,9 @@ class PaideiaSyncTask @Inject() (
         Env.conf.getString("explorer")
       )
 
-      if (syncing) {
+      // A restored checkpoint already contains everything the archive would replay;
+      // replaying it on top would double-apply every archived transaction.
+      if (syncing && !restoredFromCheckpoint) {
         syncFromArchive(ergoClient)
       }
 
