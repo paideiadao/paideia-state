@@ -3,6 +3,39 @@
 Play/Scala service that tracks Paideia DAO state on the Ergo blockchain. Depends on
 [paideia-sdk](../paideia-sdk), which is built together with it.
 
+## Genesis configuration
+
+`conf/application.conf` holds only **operator-local** settings (node, explorer, ZMQ,
+operator address, UI fees, bot behavior) — the values a party running its own instance
+is expected to change. Everything that identifies the protocol instance lives in
+`conf/genesis/paideia-mainnet.conf`: the genesis token IDs, the Paideia DAO key, the
+sync start height, and the values that seed the initial DAO config AVL tree.
+
+**Genesis values are immutable per deployment.** On-chain governance has since changed
+some of them (the config box has been updated several times); the service converges by
+replaying those updates during sync, starting from the genesis seed. Updating a genesis
+value to its "current" on-chain value therefore breaks the deployment — the seeded tree
+digest no longer matches genesis and the instance silently forks. Current values can be
+queried at `GET /dao/<paideiaDaoKey>/config`.
+
+### Running on testnet or bootstrapping a new protocol instance
+
+1. Mint the genesis tokens on the target chain (origin NFT, DAO key NFT, DAO token
+   supply, governance token, and the action/proposal/stake-state tokens) into a wallet
+   you control.
+2. Copy `conf/genesis/paideia-mainnet.conf` to a new file and fill in those token IDs,
+   `networkType`, `syncStart` (current height) and `emission_start`. Point the
+   `include` at the top of `application.conf` at your genesis file (or pass a full
+   config via `-Dconfig.file`) and configure a node/explorer for the target network.
+3. Start the service and call `POST /dao/bootstrap`. It assembles the genesis boxes
+   from the config — Paideia origin (holding the DAO token supply), DAO origin, the
+   Config box carrying the seeded config-tree digest, the staking contract boxes and
+   the stake pool — and returns an unsigned transaction spending the pre-minted tokens
+   from the provided `userAddresses`; sign and submit it.
+
+Every party operating an instance of the same protocol deployment must use the exact
+same genesis file.
+
 ## Deployment
 
 Images are built by GitHub Actions (`.github/workflows/docker.yml`) and published to
