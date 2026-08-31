@@ -16,6 +16,7 @@ stakingStates
 errors
 target
 proposals
+state
 .env
 transaction_archive
 
