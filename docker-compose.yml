@@ -17,6 +17,7 @@ services:
       - ./stakingStates:/opt/docker/stakingStates
       - ./daoconfigs:/opt/docker/daoconfigs
       - ./proposals:/opt/docker/proposals
+      - ./state:/opt/docker/state
     ports:
       - 9124:9000
     networks:

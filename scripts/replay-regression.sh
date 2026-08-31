@@ -17,16 +17,25 @@ NO_BUILD=0
 KEEP=0
 TIMEOUT_MIN=45
 DATA_DIR="/home/luivatra/develop/paideia/.replay-test"
+RESTART=0
+RESTART_TIMEOUT_SECS=600
 
 usage() {
   cat <<'EOF'
 Usage: replay-regression.sh [--no-build] [--keep] [--timeout MIN] [--data DIR]
+                             [--restart] [--restart-timeout SEC]
 
-  --no-build       Skip `docker compose build` (use whatever image is local)
-  --keep           Keep the run dir and container logs even on success
-  --timeout MIN    Minutes to wait for the replica to sync (default: 45)
-  --data DIR       Source dir holding transaction_archive/ etc.
-                    (default: /home/luivatra/develop/paideia/.replay-test)
+  --no-build             Skip `docker compose build` (use whatever image is local)
+  --keep                 Keep the run dir and container logs even on success
+  --timeout MIN          Minutes to wait for the replica to sync (default: 45)
+  --data DIR             Source dir holding transaction_archive/ etc.
+                          (default: /home/luivatra/develop/paideia/.replay-test)
+  --restart              After the normal diff passes, `docker restart` the replica,
+                          wait for /ready, assert it resumed from a persisted
+                          checkpoint rather than falling back to a full replay, and
+                          re-run the diff phase against the restarted replica.
+  --restart-timeout SEC  Seconds to wait for the replica to become ready again after
+                          --restart (default: 600)
 EOF
 }
 
@@ -36,6 +45,8 @@ while [[ $# -gt 0 ]]; do
     --keep) KEEP=1; shift ;;
     --timeout) TIMEOUT_MIN="$2"; shift 2 ;;
     --data) DATA_DIR="$2"; shift 2 ;;
+    --restart) RESTART=1; shift ;;
+    --restart-timeout) RESTART_TIMEOUT_SECS="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage; exit 1 ;;
   esac
@@ -54,7 +65,7 @@ REPLICA_NAME="replay-replica-${RUN_ID}"
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 RUN_DIR="${STATE_DIR}/.replay-run/${TS}"
 
-DATA_DIRS=(transaction_archive errors stakingStates daoconfigs proposals)
+DATA_DIRS=(transaction_archive errors stakingStates daoconfigs proposals state)
 
 FAILED=0
 CLEANED=0
@@ -201,6 +212,7 @@ docker run -d \
   -v "${RUN_DIR}/stakingStates:/opt/docker/stakingStates" \
   -v "${RUN_DIR}/daoconfigs:/opt/docker/daoconfigs" \
   -v "${RUN_DIR}/proposals:/opt/docker/proposals" \
+  -v "${RUN_DIR}/state:/opt/docker/state" \
   -e "ERGO_NODE=http://${PROXY_NAME}:9053" \
   -e "OPERATOR_ADDRESS=9h7L7sUHZk43VQC3PHtSp5ujAWcZtYmWATBH746wi75C5XHi68b" \
   -e "UI_FEE_ADDRESS=9h7L7sUHZk43VQC3PHtSp5ujAWcZtYmWATBH746wi75C5XHi68b" \
@@ -257,84 +269,163 @@ log "Replica synced after ${ELAPSED}s."
 #    configBoxId, so a block landing between the two fetches flips it. We
 #    retry the *whole round* rather than per-endpoint so a round is judged on
 #    a consistent view.)
+#
+# Sets DIFF_PASS, TOTAL, MATCHES, DIFF_FAILED_EPS as a side effect so the
+# report step below (and a second round in --restart mode) can use them.
 # ----------------------------------------------------------------------------
-log "Running diff phase..."
+run_diff_phase() {
+  log "Running diff phase..."
 
-MAX_ATTEMPTS=3
-ATTEMPT=1
-DIFF_PASS=0
-TOTAL=0
-MATCHES=0
-DIFF_FAILED_EPS=()
-
-while [[ "${ATTEMPT}" -le "${MAX_ATTEMPTS}" ]]; do
-  log "Diff attempt ${ATTEMPT}/${MAX_ATTEMPTS}"
-
-  rm -rf "${RUN_DIR}/responses"
-  mkdir -p "${RUN_DIR}/responses/replica" "${RUN_DIR}/responses/prod"
-
-  PROD_DAO_BODY="$(curl -s "${PROD_STATE}/dao" || true)"
-  DAO_KEYS="$(printf '%s' "${PROD_DAO_BODY}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("\n".join(d.keys()))' 2>/dev/null || true)"
-
-  ENDPOINTS=("/health" "/dao")
-  while IFS= read -r key; do
-    [[ -z "${key}" ]] && continue
-    ENDPOINTS+=(
-      "/dao/${key}/config"
-      "/dao/${key}/treasury"
-      "/dao/${key}/proposals"
-      "/stake/${key}"
-    )
-  done <<<"${DAO_KEYS}"
-
+  local max_attempts=3
+  local attempt=1
+  DIFF_PASS=0
   TOTAL=0
   MATCHES=0
   DIFF_FAILED_EPS=()
 
-  for ep in "${ENDPOINTS[@]}"; do
-    name="$(sanitize_endpoint "${ep}")"
-    fetch_and_normalize "http://localhost:9125${ep}" "${RUN_DIR}/responses/replica/${name}" "${ep}"
-    fetch_and_normalize "${PROD_STATE}${ep}" "${RUN_DIR}/responses/prod/${name}" "${ep}"
-    TOTAL=$(( TOTAL + 1 ))
-    if diff -q "${RUN_DIR}/responses/replica/${name}" "${RUN_DIR}/responses/prod/${name}" >/dev/null 2>&1; then
-      MATCHES=$(( MATCHES + 1 ))
-    else
-      DIFF_FAILED_EPS+=("${ep}")
+  while [[ "${attempt}" -le "${max_attempts}" ]]; do
+    log "Diff attempt ${attempt}/${max_attempts}"
+
+    rm -rf "${RUN_DIR}/responses"
+    mkdir -p "${RUN_DIR}/responses/replica" "${RUN_DIR}/responses/prod"
+
+    local prod_dao_body dao_keys
+    prod_dao_body="$(curl -s "${PROD_STATE}/dao" || true)"
+    dao_keys="$(printf '%s' "${prod_dao_body}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("\n".join(d.keys()))' 2>/dev/null || true)"
+
+    local endpoints=("/health" "/dao")
+    while IFS= read -r key; do
+      [[ -z "${key}" ]] && continue
+      endpoints+=(
+        "/dao/${key}/config"
+        "/dao/${key}/treasury"
+        "/dao/${key}/proposals"
+        "/stake/${key}"
+      )
+    done <<<"${dao_keys}"
+
+    TOTAL=0
+    MATCHES=0
+    DIFF_FAILED_EPS=()
+
+    for ep in "${endpoints[@]}"; do
+      name="$(sanitize_endpoint "${ep}")"
+      fetch_and_normalize "http://localhost:9125${ep}" "${RUN_DIR}/responses/replica/${name}" "${ep}"
+      fetch_and_normalize "${PROD_STATE}${ep}" "${RUN_DIR}/responses/prod/${name}" "${ep}"
+      TOTAL=$(( TOTAL + 1 ))
+      if diff -q "${RUN_DIR}/responses/replica/${name}" "${RUN_DIR}/responses/prod/${name}" >/dev/null 2>&1; then
+        MATCHES=$(( MATCHES + 1 ))
+      else
+        DIFF_FAILED_EPS+=("${ep}")
+      fi
+    done
+
+    if [[ "${MATCHES}" -eq "${TOTAL}" ]]; then
+      DIFF_PASS=1
+      return
     fi
+
+    if [[ "${attempt}" -lt "${max_attempts}" ]]; then
+      log "Attempt ${attempt}: ${MATCHES}/${TOTAL} endpoints match, retrying in 30s..."
+      sleep 30
+    fi
+    attempt=$(( attempt + 1 ))
   done
+}
 
-  if [[ "${MATCHES}" -eq "${TOTAL}" ]]; then
-    DIFF_PASS=1
-    break
+# Prints a PASS/FAIL report for the current DIFF_PASS/TOTAL/MATCHES/DIFF_FAILED_EPS
+# and, on failure, sets FAILED=1 and exits 1.
+report_diff_phase() {
+  local label="$1"
+  if [[ "${DIFF_PASS}" -eq 1 ]]; then
+    log "REPLAY REGRESSION (${label}): PASS ${MATCHES}/${TOTAL} endpoints identical"
+  else
+    echo "REPLAY REGRESSION (${label}): differences found. Diffs (prod vs replica, head -60 each):" >&2
+    for ep in "${DIFF_FAILED_EPS[@]}"; do
+      name="$(sanitize_endpoint "${ep}")"
+      echo "--- ${ep} ---" >&2
+      diff -u "${RUN_DIR}/responses/prod/${name}" "${RUN_DIR}/responses/replica/${name}" 2>&1 | head -60 >&2 || true
+    done
+    echo "REPLAY REGRESSION (${label}): FAIL $(( TOTAL - MATCHES ))/${TOTAL} endpoints differ" >&2
+    FAILED=1
+    exit 1
   fi
+}
 
-  if [[ "${ATTEMPT}" -lt "${MAX_ATTEMPTS}" ]]; then
-    log "Attempt ${ATTEMPT}: ${MATCHES}/${TOTAL} endpoints match, retrying in 30s..."
-    sleep 30
-  fi
-  ATTEMPT=$(( ATTEMPT + 1 ))
-done
+run_diff_phase
+report_diff_phase "initial sync"
 
 # ----------------------------------------------------------------------------
 # 9. Blocked-broadcast count (informational)
 # ----------------------------------------------------------------------------
 BLOCKED_COUNT="$(docker logs "${PROXY_NAME}" 2>&1 | grep -c 'BLOCKED transaction broadcast' || true)"
 BLOCKED_COUNT="${BLOCKED_COUNT:-0}"
+log "REPLAY REGRESSION: ${BLOCKED_COUNT} broadcast attempts blocked"
 
 # ----------------------------------------------------------------------------
-# 10. Report
+# 10. --restart mode: restart the replica, confirm it resumes from a persisted
+#     checkpoint instead of falling back to a full archive replay, and re-run the
+#     diff phase against the restarted replica.
 # ----------------------------------------------------------------------------
-if [[ "${DIFF_PASS}" -eq 1 ]]; then
-  log "REPLAY REGRESSION: PASS ${MATCHES}/${TOTAL} endpoints identical (${BLOCKED_COUNT} broadcast attempts blocked)"
-  exit 0
-else
-  echo "REPLAY REGRESSION: differences found (${BLOCKED_COUNT} broadcast attempts blocked). Diffs (prod vs replica, head -60 each):" >&2
-  for ep in "${DIFF_FAILED_EPS[@]}"; do
-    name="$(sanitize_endpoint "${ep}")"
-    echo "--- ${ep} ---" >&2
-    diff -u "${RUN_DIR}/responses/prod/${name}" "${RUN_DIR}/responses/replica/${name}" 2>&1 | head -60 >&2 || true
+if [[ "${RESTART}" -eq 1 ]]; then
+  log "Restart mode: restarting replica ${REPLICA_NAME}..."
+  RESTART_T0=$(date +%s)
+  docker restart "${REPLICA_NAME}" >/dev/null
+
+  while true; do
+    NOW_TS=$(date +%s)
+    RESTART_ELAPSED=$(( NOW_TS - RESTART_T0 ))
+
+    if [[ "$(docker inspect -f '{{.State.Running}}' "${REPLICA_NAME}" 2>/dev/null || echo false)" != "true" ]]; then
+      echo "ERROR: replica container exited unexpectedly after restart. Last 50 log lines:" >&2
+      docker logs --tail 50 "${REPLICA_NAME}" >&2 || true
+      FAILED=1
+      exit 1
+    fi
+
+    if [[ "${RESTART_ELAPSED}" -ge "${RESTART_TIMEOUT_SECS}" ]]; then
+      echo "ERROR: timed out after ${RESTART_TIMEOUT_SECS}s waiting for replica to become ready after restart" >&2
+      FAILED=1
+      exit 1
+    fi
+
+    HTTP_CODE="$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:9125/ready" || echo 000)"
+    if [[ "${HTTP_CODE}" == "200" ]]; then
+      break
+    fi
+
+    sleep 2
   done
-  echo "REPLAY REGRESSION: FAIL $(( TOTAL - MATCHES ))/${TOTAL} endpoints differ" >&2
-  FAILED=1
-  exit 1
+
+  RESTART_ELAPSED=$(( $(date +%s) - RESTART_T0 ))
+  log "restart to ready: ${RESTART_ELAPSED}s"
+
+  # Capture to a file first: with pipefail, `docker logs | grep -q` reports failure
+  # when grep exits early and docker logs dies of SIGPIPE, even though the line exists.
+  RESTART_LOG="${RUN_DIR}/logs/replica-after-restart.log"
+  docker logs "${REPLICA_NAME}" >"${RESTART_LOG}" 2>&1 || true
+  if ! grep -q "Restored state at height" "${RESTART_LOG}"; then
+    echo "ERROR: replica did not resume from a persisted checkpoint after restart - it fell back to a full archive replay instead. Restore-related log lines:" >&2
+    grep -i "restor\|checkpoint" "${RESTART_LOG}" >&2 || true
+    FAILED=1
+    exit 1
+  fi
+  # ...and it must not have replayed the archive on top of the restored state.
+  if awk '/Restored state at height/{f=1; next} f && /transaction_archive\//{c++} END{exit (c>0)}' "${RESTART_LOG}"; then
+    log "Confirmed replica resumed from a persisted checkpoint without archive replay."
+  else
+    echo "ERROR: replica restored a checkpoint but then replayed the transaction archive on top of it." >&2
+    FAILED=1
+    exit 1
+  fi
+
+  log "Re-running diff phase against the restarted replica..."
+  run_diff_phase
+  report_diff_phase "after restart"
+
+  BLOCKED_COUNT="$(docker logs "${PROXY_NAME}" 2>&1 | grep -c 'BLOCKED transaction broadcast' || true)"
+  BLOCKED_COUNT="${BLOCKED_COUNT:-0}"
+  log "REPLAY REGRESSION: PASS (initial sync + restart) - ${BLOCKED_COUNT} broadcast attempts blocked total"
 fi
+
+exit 0

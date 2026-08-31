@@ -116,6 +116,31 @@ class PaideiaSyncTask @Inject() (
   /** Full height of the node as of the last getNodeInfo call, for /health and /ready. */
   @volatile var lastNodeHeight: Int = 0
 
+  /** Whether the most recent (or in-progress) startup resumed from a persisted
+    * checkpoint (Paideia.restoreState) instead of falling back to a full archive
+    * replay, and the height that checkpoint was taken at. Set once by
+    * initializeFromActor() before any sync activity; read by HealthController.
+    */
+  @volatile var restoredFromCheckpoint: Boolean = false
+  @volatile var checkpointHeight: Option[Int] = None
+
+  /** How often (in blocks) to checkpoint state while still far behind the chain tip;
+    * once within virtualMempoolHeight+1 of the tip, every block is checkpointed
+    * regardless of this value (see CheckpointPolicy.shouldCheckpoint).
+    */
+  val checkpointInterval: Int =
+    if (Env.conf.hasPath("checkpointInterval"))
+      Env.conf.getInt("checkpointInterval")
+    else 100
+
+  /** Guards the Initialize ask so it only ever runs on the very first pass through the
+    * scheduled task's body, not on every retry after a caught exception restarts it
+    * (currentHeight/syncing already reflect prior progress on a retry, so re-running
+    * Initialize would be both wrong - it would try to restore into a non-empty
+    * registry - and redundant).
+    */
+  private val initializedOnce = new java.util.concurrent.atomic.AtomicBoolean(false)
+
   private def fetchNodeHeight(datasource: NodeAndExplorerDataSourceImpl): Int = {
     val h = nodeCall[org.ergoplatform.restapi.client.NodeInfo]("getNodeInfo")(
       datasource.getNodeInfoApi().getNodeInfo()
@@ -123,6 +148,64 @@ class PaideiaSyncTask @Inject() (
     lastNodeHeight = h
     h
   }
+  /** Sends Initialize to the state actor and applies the result. Must be called
+    * exactly once, before any archive replay or block sync. restoreState can take a
+    * while for a large state (rebuilding every registry and verifying every digest
+    * against disk), so this uses a generous timeout of its own rather than the
+    * class-level 25s `timeout` used for per-transaction asks.
+    */
+  private def initializeFromActor(): Unit = {
+    val restored = Await.result(
+      (paideiaActor ? Initialize)(Timeout(120.seconds)).mapTo[Option[Int]],
+      120.seconds
+    )
+    restored match {
+      case Some(height) =>
+        restoredFromCheckpoint = true
+        checkpointHeight = Some(height)
+        // persistState is only ever called after the block at `height` has been
+        // fully handled (commit+checkpoint happens right before currentHeight is
+        // advanced past it in syncRemainingBlocks/syncFromArchive), so the next
+        // block sync must handle is height + 1.
+        currentHeight = height + 1
+        logger.info(
+          s"""Sync resuming at height ${currentHeight.toString} after restoring checkpoint at ${height.toString}"""
+        )
+      case None =>
+        restoredFromCheckpoint = false
+        checkpointHeight = None
+        logger.info(
+          s"""Sync starting from configured syncStart (${currentHeight.toString}); full archive replay required"""
+        )
+    }
+  }
+
+  /** Requests a checkpoint (commit + persistState) at `height`. Best-effort: a failed
+    * or slow checkpoint is logged but never aborts the sync loop - the transaction
+    * archive remains the source of truth for a replay if persistence never catches up.
+    */
+  private def checkpoint(height: Int): Unit = {
+    Try(
+      Await.result(
+        (paideiaActor ? CommitBlock(height))(Timeout(120.seconds)).mapTo[Try[Unit]],
+        120.seconds
+      )
+    ) match {
+      case Success(Success(_)) =>
+        logger.info(s"""Checkpointed state at height ${height.toString}""")
+      case Success(Failure(e)) =>
+        logger.error(
+          s"""Failed to persist checkpoint at height ${height.toString}: ${e.getMessage()}""",
+          e
+        )
+      case Failure(e) =>
+        logger.error(
+          s"""Checkpoint request at height ${height.toString} timed out or failed: ${e.getMessage()}""",
+          e
+        )
+    }
+  }
+
   var mempoolTransactions = mutable.HashMap[String, ErgoTransaction]()
 
   /** Mempool transactions already rolled back as orphans. They may linger in the node's
@@ -153,6 +236,17 @@ class PaideiaSyncTask @Inject() (
         s"""Checking blockchain, syncer current height: ${currentHeight.toString}"""
       )
 
+      if (initializedOnce.compareAndSet(false, true)) {
+        try initializeFromActor()
+        catch {
+          case e: Throwable =>
+            // Let the scheduled loop retry initialization instead of staying stuck in
+            // `syncing` forever with a guard that can never be cleared.
+            initializedOnce.set(false)
+            throw e
+        }
+      }
+
       val ergoClient = RestApiErgoClient.create(
         Env.conf.getString("node"),
         Env.networkType,
@@ -160,7 +254,9 @@ class PaideiaSyncTask @Inject() (
         Env.conf.getString("explorer")
       )
 
-      if (syncing) {
+      // A restored checkpoint already contains everything the archive would replay;
+      // replaying it on top would double-apply every archived transaction.
+      if (syncing && !restoredFromCheckpoint) {
         syncFromArchive(ergoClient)
       }
 
@@ -798,6 +894,15 @@ class PaideiaSyncTask @Inject() (
                   30.seconds
                 )
               })
+              if (
+                CheckpointPolicy.shouldCheckpoint(
+                  currentHeight,
+                  nodeHeight,
+                  virtualMempoolHeight,
+                  checkpointInterval
+                )
+              )
+                checkpoint(currentHeight)
               currentHeight += 1
               if (currentHeight >= (nodeHeight - virtualMempoolHeight))
                 nodeHeight = fetchNodeHeight(datasource)
@@ -870,6 +975,14 @@ class PaideiaSyncTask @Inject() (
             }
             currentHeight = height + 1
           })
+
+          // Leave a checkpoint behind so a fresh replay doesn't have to be redone in
+          // full on the very next restart; currentHeight is set above to (last
+          // archived file's height) + 1, i.e. the height of the last block actually
+          // handled by this loop.
+          if (archivedTransactionFiles.nonEmpty) {
+            checkpoint(currentHeight - 1)
+          }
         }
       }
     )

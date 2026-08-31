@@ -1,5 +1,7 @@
 package actors
 
+import org.apache.commons.io.FileUtils
+
 import akka.actor._
 import im.paideia.governance.contracts.ProtoDAOProxy
 import im.paideia.common.contracts.PaideiaContractSignature
@@ -129,6 +131,21 @@ object PaideiaStateActor {
       syncing: Boolean
   )
 
+  /** Sent once by PaideiaSyncTask before anything else. Handled by attempting
+    * Paideia.restoreState(stateDir): on success the actor replies Some(height) and the
+    * genesis seeding / archive replay is skipped entirely; on failure it replies None
+    * after wiping any partial checkpoint state and re-running the genesis seeding path,
+    * so the caller falls back to a full archive replay.
+    */
+  case object Initialize
+
+  /** Sent once per confirmed block (per the checkpoint-interval policy) after all of
+    * that block's transactions have been handled. Handled by draining queued AVL+
+    * mutations (Paideia.commit()) and writing a checkpoint (Paideia.persistState) at
+    * the given height.
+    */
+  case class CommitBlock(height: Int)
+
   case class GetStake(
       daoKey: String,
       stakeKeys: List[String],
@@ -246,6 +263,15 @@ object PaideiaStateActor {
 class PaideiaStateActor extends Actor with Logging {
   import PaideiaStateActor._
 
+  /** Directory where confirmed AVL+ state and checkpoint metadata are persisted
+    * (Paideia.commit / persistState / restoreState). java.io.File, not the
+    * scala.reflect.io.File imported below under the same simple name (used for the
+    * plain directory-creation calls in `initiate`) - always fully-qualified here to
+    * avoid the clash.
+    */
+  private val stateDir: java.io.File =
+    new java.io.File(Env.conf.getString("stateDir"))
+
   initiate
 
   var syncing = true
@@ -267,6 +293,51 @@ class PaideiaStateActor extends Actor with Logging {
     case g: GetContractSignature       => sender() ! getContractSignature(g)
     case g: GetDAOProposals            => sender() ! getDAOProposals(g)
     case g: GetDAOProposal             => sender() ! getDAOProposal(g)
+    case Initialize                    => sender() ! initializeState()
+    case c: CommitBlock                => sender() ! commitBlock(c)
+  }
+
+  /** Called once, before any sync activity, in response to Initialize. Tries to
+    * resume from a checkpoint; only runs the genesis seeding path (and reports None,
+    * telling the caller to fall back to a full archive replay) when no usable
+    * checkpoint is found.
+    */
+  def initializeState(): Option[Int] =
+    Paideia.restoreState(stateDir) match {
+      case Some(height) =>
+        logger.info(
+          s"""Restored state at height ${height.toString} from ${stateDir.getPath()}, skipping archive replay"""
+        )
+        Some(height)
+      case None =>
+        logger.warn(
+          s"""No usable checkpoint restored (${Paideia.lastRestoreError
+              .getOrElse("no checkpoint")}), falling back to full replay"""
+        )
+        // restoreState may have opened stores / populated registries before failing;
+        // close those handles and wipe daoconfigs/proposals/stakingStates so the
+        // failed restore's partial data can't be reused - the archive is the source
+        // of truth for a replay.
+        Paideia.clearRegistries(closeStores = true)
+        // Wipe store contents so a partial restore can't leak into the replay. Contents
+        // only: in docker these directories are bind-mount points, and deleting the
+        // directory itself (Paideia.clear / FileUtils.deleteDirectory) fails with EBUSY.
+        List("daoconfigs", "proposals", "stakingStates").foreach { name =>
+          val dir = new java.io.File(name)
+          if (dir.isDirectory) FileUtils.cleanDirectory(dir)
+        }
+        seedGenesis()
+        None
+    }
+
+  /** Drains queued confirmed AVL+ mutations into the versioned stores and writes a
+    * checkpoint (state.json + box files) at `height`. Called once per confirmed block
+    * per PaideiaSyncTask's checkpoint-interval policy, never for mempool/rollback
+    * events, whose state is ephemeral by design.
+    */
+  def commitBlock(c: CommitBlock): Try[Unit] = Try {
+    Paideia.commit()
+    Paideia.persistState(stateDir, c.height)
   }
 
   def getDAOProposal(g: GetDAOProposal): Try[Proposal] =
@@ -359,14 +430,14 @@ class PaideiaStateActor extends Actor with Logging {
                 actionBox.activationTime,
                 actionBox.remove
                   .map(dck =>
-                    properKnownKeys(dck.hashedKey.toList)
+                    properKnownKeys.get(dck.hashedKey.toList).flatten
                       .getOrElse("Unknown Key")
                   )
                   .toArray,
                 actionBox.update
                   .map(dcv =>
                     DaoConfigValueEntry(
-                      properKnownKeys(dcv._1.hashedKey.toList)
+                      properKnownKeys.get(dcv._1.hashedKey.toList).flatten
                         .getOrElse("Unknown Key"),
                       DAOConfigValueDeserializer.getType(dcv._2),
                       DAOConfigValueDeserializer.toString(dcv._2)
@@ -376,7 +447,7 @@ class PaideiaStateActor extends Actor with Logging {
                 actionBox.insert
                   .map(dcv =>
                     DaoConfigValueEntry(
-                      properKnownKeys(dcv._1.hashedKey.toList)
+                      properKnownKeys.get(dcv._1.hashedKey.toList).flatten
                         .getOrElse("Unknown Key"),
                       DAOConfigValueDeserializer.getType(dcv._2),
                       DAOConfigValueDeserializer.toString(dcv._2)
@@ -554,7 +625,7 @@ class PaideiaStateActor extends Actor with Logging {
         .toMap
         .map(cv =>
           (
-            properKnownKeys(cv._1.hashedKey.toList).getOrElse("Unknown key"),
+            properKnownKeys.get(cv._1.hashedKey.toList).flatten.getOrElse("Unknown key"),
             cv._2
           )
         )
@@ -1099,7 +1170,16 @@ class PaideiaStateActor extends Actor with Logging {
       proposalsDir.createDirectory()
       logger.info("Created proposalsDir")
     }
+  }
 
+  /** Seeds the Paideia DAO config tree from genesis values and instantiates every
+    * default contract signature, exactly as `initiate` used to do unconditionally.
+    * Now only run when Initialize finds no usable checkpoint to restore from - sync
+    * then replays the whole archive on top of this seed, same as before persistence
+    * existed. Every `set` call and the dummy-DAO dance are unchanged, byte-for-byte,
+    * from the original `initiate`.
+    */
+  def seedGenesis(): Unit = {
     val paideiaConfig = DAOConfig(Env.paideiaDaoKey)
     val dummyDaoKey =
       "678441d2c6f7254e6b2f317e45989b42ec3dcd33835b4b03b7c61e9fcc80769c"
