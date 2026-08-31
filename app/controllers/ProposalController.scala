@@ -37,7 +37,6 @@ import play.api.Logging
 import org.ergoplatform.appkit.ErgoValue
 import org.ergoplatform.sdk.ErgoToken
 import models.CastVoteRequest
-import models.Proposal
 import im.paideia.common.transactions.PaideiaTransaction
 import org.ergoplatform.sdk.ExtendedInputBox
 import org.ergoplatform.appkit.impl.InputBoxImpl
@@ -46,6 +45,7 @@ import org.ergoplatform.appkit.impl.InputBoxImpl
 class ProposalController @Inject() (
     @Named("paideia-state") paideiaActor: ActorRef,
     @Named("error-logging") errorActor: ActorRef,
+    service: services.PaideiaStateService,
     val controllerComponents: ControllerComponents
 )(implicit ec: ExecutionContext)
     extends BaseController
@@ -65,12 +65,15 @@ class ProposalController @Inject() (
       createErgoClient.execute(
         new java.util.function.Function[BlockchainContext, Future[Result]] {
           override def apply(_ctx: BlockchainContext): Future[Result] = {
-            (paideiaActor ? GetDAOProposal(
-              _ctx.asInstanceOf[BlockchainContextImpl],
-              daoKey,
-              index
-            ))
-              .mapTo[Try[Proposal]]
+            Future(
+              service.getDAOProposal(
+                GetDAOProposal(
+                  _ctx.asInstanceOf[BlockchainContextImpl],
+                  daoKey,
+                  index
+                )
+              )
+            )
               .map(proposalTry =>
                 proposalTry match {
                   case Success(proposal) =>

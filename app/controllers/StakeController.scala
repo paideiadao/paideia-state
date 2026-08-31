@@ -48,6 +48,7 @@ import im.paideia.common.transactions.PaideiaTransaction
 class StakeController @Inject() (
     @Named("paideia-state") paideiaActor: ActorRef,
     @Named("error-logging") errorActor: ActorRef,
+    service: services.PaideiaStateService,
     val controllerComponents: ControllerComponents
 )(implicit ec: ExecutionContext)
     extends BaseController
@@ -67,12 +68,15 @@ class StakeController @Inject() (
       createErgoClient.execute(
         new java.util.function.Function[BlockchainContext, Future[Result]] {
           override def apply(_ctx: BlockchainContext): Future[Result] = {
-            (paideiaActor ? GetStake(
-              daoKey,
-              List(stakeKey),
-              _ctx.asInstanceOf[BlockchainContextImpl]
-            ))
-              .mapTo[Try[List[StakeInfo]]]
+            Future(
+              service.getStake(
+                GetStake(
+                  daoKey,
+                  List(stakeKey),
+                  _ctx.asInstanceOf[BlockchainContextImpl]
+                )
+              )
+            )
               .map(stakeRecordTry =>
                 stakeRecordTry match {
                   case Success(stakeRecord) =>
@@ -101,12 +105,15 @@ class StakeController @Inject() (
           createErgoClient.execute(
             new java.util.function.Function[BlockchainContext, Future[Result]] {
               override def apply(_ctx: BlockchainContext): Future[Result] = {
-                (paideiaActor ? GetStake(
-                  daoKey,
-                  stakeKeys.potentialKeys,
-                  _ctx.asInstanceOf[BlockchainContextImpl]
-                ))
-                  .mapTo[Try[List[StakeInfo]]]
+                Future(
+                  service.getStake(
+                    GetStake(
+                      daoKey,
+                      stakeKeys.potentialKeys,
+                      _ctx.asInstanceOf[BlockchainContextImpl]
+                    )
+                  )
+                )
                   .map(stakeRecordTry =>
                     stakeRecordTry match {
                       case Success(stakeRecord) =>
@@ -128,11 +135,14 @@ class StakeController @Inject() (
       createErgoClient.execute(
         new java.util.function.Function[BlockchainContext, Future[Result]] {
           override def apply(_ctx: BlockchainContext): Future[Result] = {
-            (paideiaActor ? GetDaoStake(
-              _ctx.asInstanceOf[BlockchainContextImpl],
-              daoKey
-            ))
-              .mapTo[Try[DaoStakeInfo]]
+            Future(
+              service.getDaoStake(
+                GetDaoStake(
+                  _ctx.asInstanceOf[BlockchainContextImpl],
+                  daoKey
+                )
+              )
+            )
               .map(stakeRecordTry =>
                 stakeRecordTry match {
                   case Success(stakeRecord) => Ok(Json.toJson(stakeRecord))
