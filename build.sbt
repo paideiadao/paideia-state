@@ -17,7 +17,7 @@ dockerBaseImage := "openjdk:11"
 
 libraryDependencies += guice
 libraryDependencies += "org.scalatestplus.play" %% "scalatestplus-play" % "5.0.0" % Test
-libraryDependencies += "im.paideia" %% "paideia-sdk" % "1.0.0-rc4-SNAPSHOT"
+libraryDependencies += "im.paideia" %% "paideia-sdk" % "1.0.0-rc4"
 
 // org.ethereum:leveldbjni-all (transitive via plasma-toolkit) is not on any public repo;
 // com.halibobor bundles LevelDB 1.23, which reads the .ldb files written by the org.ethereum build (1.18)
