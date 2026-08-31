@@ -142,6 +142,26 @@ class DAOController @Inject() (
         )
   }
 
+  /** Treasury health for a single DAO, read straight from the volatile shortfall
+    * registry PaideiaSyncTask maintains - no read/write lock, no syncing check, so
+    * this stays available even while the sync task is still catching up.
+    */
+  def getDAOTreasuryHealth(daoKey: String) = Action {
+    service.getTreasuryShortfall(daoKey) match {
+      case None =>
+        Ok(Json.obj("status" -> "ok"))
+      case Some(shortfall) =>
+        Ok(
+          Json.obj(
+            "status" -> "short",
+            "missingNanoErgs" -> shortfall.missingNanoErgs,
+            "missingTokens" -> shortfall.missingTokens,
+            "height" -> shortfall.height
+          )
+        )
+    }
+  }
+
   def daoCreate = Action.async { implicit request: Request[AnyContent] =>
     val content = request.body
     val jsonObject = content.asJson
