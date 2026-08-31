@@ -46,7 +46,8 @@ they shipped. A clean run means the change under test didn't alter observable DA
 
 ```bash
 scripts/replay-regression.sh [--no-build] [--keep] [--timeout MIN] [--data DIR] \
-                              [--restart] [--restart-timeout SEC]
+                              [--restart] [--restart-timeout SEC] \
+                              [--multi-operator [N]]
 ```
 
 - `--no-build` skips `docker compose build` and uses whatever `paideia-state:latest`
@@ -62,9 +63,19 @@ scripts/replay-regression.sh [--no-build] [--keep] [--timeout MIN] [--data DIR] 
   logs that it resumed from a persisted checkpoint (`Paideia.restoreState`) rather than
   falling back to a full archive replay, then re-run the diff phase against the
   restarted replica and report that result too. Exercises the state-persistence path
-  end to end: without it the harness only ever tests a fresh-replay boot.
+  end to end: without it the harness only ever tests a fresh-replay boot. Not supported
+  together with `--multi-operator`.
 - `--restart-timeout SEC` bounds how long to wait for the replica to become ready again
   after `--restart` (default 600).
+- `--multi-operator [N]` — determinism mode: instead of one replica, run `N` replicas
+  (2 or 3; default 3 when `N` is omitted) on the same shared network and tx-block proxy,
+  each with its own fresh, non-shared copy of the replay state and a different
+  `OPERATOR_ADDRESS`/`UI_FEE_ADDRESS`. Proves state evolution doesn't depend on which
+  operator address a node runs with. Every replica's `/dao` must return 200 before the
+  diff phase starts; the diff phase then checks, for every endpoint, both replica-1 vs
+  prod (the usual regression check) and every other replica vs replica-1 (the
+  determinism check) — a round only passes if all of those match. Mutually exclusive
+  with `--restart`.
 
 ### Requirements
 
