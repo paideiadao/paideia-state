@@ -83,6 +83,12 @@ class PaideiaSyncTask @Inject() (
   var syncing = true
   var mempoolTransactions = mutable.HashMap[String, ErgoTransaction]()
 
+  /** Mempool transactions already rolled back as orphans. They may linger in the node's
+    * mempool for a while; they must be neither re-rolled-back nor, once evicted, rolled back
+    * a second time.
+    */
+  val orphanedMempoolTxs = mutable.HashSet[String]()
+
   actorSystem.getScheduler.scheduleWithFixedDelay(
     initialDelay = 5.seconds,
     delay = 5.seconds
@@ -498,6 +504,11 @@ class PaideiaSyncTask @Inject() (
 
           mempoolTransactions.foreach(kv =>
             if (!newMempoolTransactions.contains(kv._1)) {
+              if (orphanedMempoolTxs.remove(kv._1)) {
+                logger.info(
+                  s"""Orphan transaction left mempool (already rolled back): ${kv._1}"""
+                )
+              } else {
               // TODO only rollback transactions that are relevant (paideiaeventresponse.status >= 1)
               logger.info(
                 s"""Rolling back mempool transaction: ${kv._1}"""
@@ -519,6 +530,7 @@ class PaideiaSyncTask @Inject() (
                   ),
                 5.seconds
               )
+              }
             }
           )
 
@@ -526,12 +538,15 @@ class PaideiaSyncTask @Inject() (
 
           val orphanedTxs = mutable.Buffer[String]()
           val orphanedOutputs = mutable.Buffer[String]()
+          orphanedOutputs ++= orphanedMempoolTxs.toSeq
+            .flatMap(mempoolTransactions.get)
+            .flatMap(_.getOutputs().asScala.map(_.getBoxId()))
           var foundNewOrphan = true
 
           while (foundNewOrphan) {
             foundNewOrphan = false
             mempoolTransactions.foreach(kv => {
-              if (!orphanedTxs.contains(kv._1))
+              if (!orphanedTxs.contains(kv._1) && !orphanedMempoolTxs.contains(kv._1))
                 if (
                   !kv._2
                     .getInputs()
@@ -572,6 +587,7 @@ class PaideiaSyncTask @Inject() (
             })
           }
 
+          orphanedMempoolTxs ++= orphanedTxs
           orphanedTxs.foreach(txId =>
             Await.result(
               (paideiaActor ? BlockchainEvent(
