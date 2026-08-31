@@ -1,5 +1,7 @@
 package actors
 
+import org.apache.commons.io.FileUtils
+
 import akka.actor._
 import im.paideia.governance.contracts.ProtoDAOProxy
 import im.paideia.common.contracts.PaideiaContractSignature
@@ -317,7 +319,13 @@ class PaideiaStateActor extends Actor with Logging {
         // failed restore's partial data can't be reused - the archive is the source
         // of truth for a replay.
         Paideia.clearRegistries(closeStores = true)
-        Paideia.clear
+        // Wipe store contents so a partial restore can't leak into the replay. Contents
+        // only: in docker these directories are bind-mount points, and deleting the
+        // directory itself (Paideia.clear / FileUtils.deleteDirectory) fails with EBUSY.
+        List("daoconfigs", "proposals", "stakingStates").foreach { name =>
+          val dir = new java.io.File(name)
+          if (dir.isDirectory) FileUtils.cleanDirectory(dir)
+        }
         seedGenesis()
         None
     }
