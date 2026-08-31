@@ -237,7 +237,14 @@ class PaideiaSyncTask @Inject() (
       )
 
       if (initializedOnce.compareAndSet(false, true)) {
-        initializeFromActor()
+        try initializeFromActor()
+        catch {
+          case e: Throwable =>
+            // Let the scheduled loop retry initialization instead of staying stuck in
+            // `syncing` forever with a guard that can never be cleared.
+            initializedOnce.set(false)
+            throw e
+        }
       }
 
       val ergoClient = RestApiErgoClient.create(
