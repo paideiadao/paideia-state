@@ -79,8 +79,19 @@ class PaideiaSyncTask @Inject() (
 
   val virtualMempoolHeight: Int = 10
 
-  var currentHeight = Env.conf.getInt("syncStart")
-  var syncing = true
+  @volatile var currentHeight = Env.conf.getInt("syncStart")
+  @volatile var syncing = true
+
+  /** Full height of the node as of the last getNodeInfo call, for /health and /ready. */
+  @volatile var lastNodeHeight: Int = 0
+
+  private def fetchNodeHeight(datasource: NodeAndExplorerDataSourceImpl): Int = {
+    val h = nodeCall[org.ergoplatform.restapi.client.NodeInfo]("getNodeInfo")(
+      datasource.getNodeInfoApi().getNodeInfo()
+    ).getFullHeight()
+    lastNodeHeight = h
+    h
+  }
   var mempoolTransactions = mutable.HashMap[String, ErgoTransaction]()
 
   actorSystem.getScheduler.scheduleWithFixedDelay(
@@ -406,9 +417,7 @@ class PaideiaSyncTask @Inject() (
             mutable.HashMap[String, ErgoTransaction]()
 
           var nodeHeight =
-            nodeCall[org.ergoplatform.restapi.client.NodeInfo]("getNodeInfo")(
-              datasource.getNodeInfoApi().getNodeInfo()
-            ).getFullHeight()
+            fetchNodeHeight(datasource)
 
           var virtualCurrentHeight = currentHeight
 
@@ -455,9 +464,7 @@ class PaideiaSyncTask @Inject() (
             })
             virtualCurrentHeight += 1
             if (virtualCurrentHeight >= nodeHeight)
-              nodeHeight = nodeCall[org.ergoplatform.restapi.client.NodeInfo]("getNodeInfo")(
-                datasource.getNodeInfoApi().getNodeInfo()
-              ).getFullHeight()
+              nodeHeight = fetchNodeHeight(datasource)
           }
 
           while (limit == resultSize) {
@@ -613,9 +620,7 @@ class PaideiaSyncTask @Inject() (
               .asInstanceOf[NodeAndExplorerDataSourceImpl]
           val ctx = _ctx.asInstanceOf[BlockchainContextImpl]
           var nodeHeight =
-            nodeCall[org.ergoplatform.restapi.client.NodeInfo]("getNodeInfo")(
-              datasource.getNodeInfoApi().getNodeInfo()
-            ).getFullHeight()
+            fetchNodeHeight(datasource)
 
           logger.info(s"""Node height: ${nodeHeight
               .toString()} Current height: ${currentHeight.toString()}""")
@@ -671,9 +676,7 @@ class PaideiaSyncTask @Inject() (
             })
             currentHeight += 1
             if (currentHeight >= (nodeHeight - virtualMempoolHeight))
-              nodeHeight = nodeCall[org.ergoplatform.restapi.client.NodeInfo]("getNodeInfo")(
-                datasource.getNodeInfoApi().getNodeInfo()
-              ).getFullHeight()
+              nodeHeight = fetchNodeHeight(datasource)
             if (currentHeight % 100 == 0)
               logger.info(
                 s"""Syncer current height: ${currentHeight.toString}"""

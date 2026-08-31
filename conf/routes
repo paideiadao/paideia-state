@@ -5,6 +5,7 @@
 
 # Health check
 GET     /health                     controllers.HealthController.health
+GET     /ready                      controllers.HealthController.ready
 
 # An example controller showing a sample home page
 POST    /dao/bootstrap              controllers.DAOController.bootstrap
