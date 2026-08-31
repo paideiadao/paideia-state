@@ -430,14 +430,14 @@ class PaideiaStateActor extends Actor with Logging {
                 actionBox.activationTime,
                 actionBox.remove
                   .map(dck =>
-                    properKnownKeys(dck.hashedKey.toList)
+                    properKnownKeys.get(dck.hashedKey.toList).flatten
                       .getOrElse("Unknown Key")
                   )
                   .toArray,
                 actionBox.update
                   .map(dcv =>
                     DaoConfigValueEntry(
-                      properKnownKeys(dcv._1.hashedKey.toList)
+                      properKnownKeys.get(dcv._1.hashedKey.toList).flatten
                         .getOrElse("Unknown Key"),
                       DAOConfigValueDeserializer.getType(dcv._2),
                       DAOConfigValueDeserializer.toString(dcv._2)
@@ -447,7 +447,7 @@ class PaideiaStateActor extends Actor with Logging {
                 actionBox.insert
                   .map(dcv =>
                     DaoConfigValueEntry(
-                      properKnownKeys(dcv._1.hashedKey.toList)
+                      properKnownKeys.get(dcv._1.hashedKey.toList).flatten
                         .getOrElse("Unknown Key"),
                       DAOConfigValueDeserializer.getType(dcv._2),
                       DAOConfigValueDeserializer.toString(dcv._2)
@@ -625,7 +625,7 @@ class PaideiaStateActor extends Actor with Logging {
         .toMap
         .map(cv =>
           (
-            properKnownKeys(cv._1.hashedKey.toList).getOrElse("Unknown key"),
+            properKnownKeys.get(cv._1.hashedKey.toList).flatten.getOrElse("Unknown key"),
             cv._2
           )
         )
