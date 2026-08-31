@@ -13,7 +13,7 @@
 
 FROM sbtscala/scala-sbt:eclipse-temurin-jammy-11.0.22_7_1.9.9_2.12.18 AS build
 
-ARG SDK_VERSION=1.0.0-rc4
+ARG SDK_VERSION=1.0.0-rc5-SNAPSHOT
 ENV SBT_OPTS="-Xmx3g -Dsbt.color=false -Dsbt.supershell=false"
 
 # ---- paideia-sdk -> ~/.ivy2/local ----
