@@ -22,9 +22,17 @@ class HealthController @Inject() (
     )
   }
 
-  /** Liveness: always 200 while the process is up; carries sync status for inspection. */
+  /** Liveness: always 200 while the process is up; carries sync status for inspection,
+    * plus whether startup resumed from a persisted checkpoint (Paideia.restoreState)
+    * instead of a full archive replay, and the height that checkpoint was taken at.
+    */
   def health = Action {
-    Ok(Json.obj("status" -> "ok") ++ syncStatus)
+    Ok(
+      Json.obj("status" -> "ok") ++ syncStatus ++ Json.obj(
+        "restoredFromCheckpoint" -> syncTask.restoredFromCheckpoint,
+        "checkpointHeight" -> syncTask.checkpointHeight
+      )
+    )
   }
 
   /** Readiness: 503 while syncing (every other endpoint rejects requests then), 200 once
