@@ -5,732 +5,1214 @@ info:
 servers:
   - url: http://testserver1.com
 tags:
+  - name: health
   - name: dao
   - name: staking
-  - name: vote
   - name: proposal
+  - name: util
 paths:
-  /dao:
+  /health:
+    get:
+      tags:
+        - health
+      operationId: health
+      summary: Liveness check
+      description: >-
+        Always 200 while the process is up. Carries the current sync status,
+        plus whether startup resumed from a persisted checkpoint
+        (Paideia.restoreState) instead of a full archive replay, and the
+        height that checkpoint was taken at.
+      responses:
+        "200":
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/healthResponse"
+  /ready:
+    get:
+      tags:
+        - health
+      operationId: ready
+      summary: Readiness check
+      description: >-
+        503 while the initial sync is still catching up (every other
+        endpoint's read paths reject requests during this time too), 200
+        once caught up. Point load balancers and health checks here.
+      responses:
+        "200":
+          description: Caught up with the node
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/readyResponse"
+        "503":
+          description: Still syncing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/readyResponse"
+  /dao/bootstrap:
     post:
       tags:
         - dao
-      operationId: createDAO
+      operationId: bootstrap
+      summary: Build a transaction that bootstraps the protocol stake pool boxes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/bootstrapRequest"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/unsignedTransaction"
+        "400":
+          $ref: "#/components/responses/badRequestTxBuild"
+  /dao/:
+    post:
+      tags:
+        - dao
+      operationId: daoCreate
       summary: Build a transaction to create a new DAO
-      description: Build a transaction to create a new DAO by supplying the address of the user and the selected options
       requestBody:
+        required: true
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                userRequest:
-                  $ref: "#/components/schemas/userRequest"
-                dao:
-                  $ref: "#/components/schemas/daoBase"
+              $ref: "#/components/schemas/createDAORequest"
       responses:
         "200":
-          description: Successful Response
+          description: Successful response
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/unsignedTransaction"
-  /dao/list:
+        "400":
+          $ref: "#/components/responses/badRequestTxBuild"
+  /dao:
     get:
       tags:
         - dao
-      operationId: listDAOs
-      summary: List all DAO's known to the current state
-      description: List all DAO's known to the current state and show their configuration
+      operationId: getAllDAOs
+      summary: List all DAOs known to the current state
+      description: >-
+        Returns a map keyed by daoKey. Each value is a 3-tuple
+        [name, boxCreationHeight, boxId], serialized by Play JSON as a plain
+        JSON array (no field names).
       responses:
         "200":
-          description: Successful Response
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  $ref: "#/components/schemas/daoSummaryTuple"
+        "400":
+          $ref: "#/components/responses/badRequestText"
+  /dao/{daoKey}/config:
+    get:
+      tags:
+        - dao
+      operationId: getDAOConfig
+      summary: Get a DAO's decoded configuration tree
+      parameters:
+        - $ref: "#/components/parameters/daoKey"
+      responses:
+        "200":
+          description: Successful response
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/dao"
-  /dao/{daoId}:
+                  $ref: "#/components/schemas/daoConfigEntry"
+        "400":
+          $ref: "#/components/responses/badRequestText"
+  /dao/{daoKey}/treasury:
     get:
       tags:
         - dao
-      operationId: getDAO
+      operationId: getDAOTreasury
+      summary: Get a DAO's treasury contract address
       parameters:
-        - name: daoId
-          in: path
-          description: ID of dao to return
-          required: true
-          schema:
-            type: string
-            minLength: 64
-            maxLength: 64
+        - $ref: "#/components/parameters/daoKey"
       responses:
         "200":
-          description: Successful Response
+          description: Successful response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/dao"
-  /dao/{daoId}/staking/status:
-    get:
-      tags:
-        - staking
-      operationId: stakingStatus
-      parameters:
-        - name: daoId
-          in: path
-          description: ID of dao to return
-          required: true
-          schema:
-            type: string
-            minLength: 64
-            maxLength: 64
-      responses:
-        "200":
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/stakingStatus"
-  /dao/{daoId}/staking:
-    post:
-      tags:
-        - staking
-      operationId: stakingCreateStake
-      parameters:
-        - name: daoId
-          in: path
-          description: ID of dao to return
-          required: true
-          schema:
-            type: string
-            minLength: 64
-            maxLength: 64
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userRequest:
-                  $ref: "#/components/schemas/userRequest"
-                stake:
-                  $ref: "#/components/schemas/stakeBase"
-      responses:
-        "200":
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/unsignedTransaction"
-  /dao/{daoId}/staking/{stakeKey}:
-    get:
-      tags:
-        - staking
-      operationId: stakingCurrentStake
-      parameters:
-        - name: daoId
-          in: path
-          description: ID of dao to return
-          required: true
-          schema:
-            type: string
-            minLength: 64
-            maxLength: 64
-        - name: stakeKey
-          in: path
-          description: Token Id of the users' stake/vote key
-          required: true
-          schema:
-            type: string
-            minLength: 64
-            maxLength: 64
-      responses:
-        "200":
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/stake"
-    put:
-      tags:
-        - staking
-      operationId: stakingChangeStake
-      parameters:
-        - name: daoId
-          in: path
-          description: ID of dao to return
-          required: true
-          schema:
-            type: string
-            minLength: 64
-            maxLength: 64
-        - name: stakeKey
-          in: path
-          description: Token Id of the users' stake/vote key
-          required: true
-          schema:
-            type: string
-            minLength: 64
-            maxLength: 64
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userRequest:
-                  $ref: "#/components/schemas/userRequest"
-                stake:
-                  $ref: "#/components/schemas/stake"
-      responses:
-        "200":
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/unsignedTransaction"
-  /staking/list:
-    post:
-      tags:
-        - staking
-      operationId: stakingList
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: array
-              items:
                 type: string
-                minLength: 64
-                maxLength: 64
+                description: Ergo address of the DAO's treasury contract
+        "400":
+          $ref: "#/components/responses/badRequestText"
+  /dao/{daoKey}/treasury/health:
+    get:
+      tags:
+        - dao
+      operationId: getDAOTreasuryHealth
+      summary: Get a DAO's treasury health
+      description: >-
+        Read straight from the volatile shortfall registry PaideiaSyncTask
+        maintains - no read/write lock, no syncing check, so this stays
+        available even while the sync task is still catching up. Always
+        returns 200.
+      parameters:
+        - $ref: "#/components/parameters/daoKey"
       responses:
         "200":
-          description: Successful Response
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/treasuryHealthResponse"
+  /dao/{daoKey}/proposals:
+    get:
+      tags:
+        - dao
+      operationId: getDAOProposals
+      summary: List a DAO's proposals
+      description: >-
+        Only includes proposals whose on-chain proposal box was found
+        (box creation height > 0).
+      parameters:
+        - $ref: "#/components/parameters/daoKey"
+      responses:
+        "200":
+          description: Successful response
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/stake"
-  /dao/{daoId}/vote:
+                  $ref: "#/components/schemas/proposalSummary"
+        "400":
+          $ref: "#/components/responses/badRequestText"
+  /stake:
     post:
       tags:
-        - vote
-      operationId: createVoteBox
-      parameters:
-        - name: daoId
-          in: path
-          description: ID of dao to return
-          required: true
-          schema:
-            type: string
-            minLength: 64
-            maxLength: 64
+        - staking
+      operationId: stake
+      summary: Build a transaction to create a new stake
       requestBody:
+        required: true
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                userRequest:
-                  $ref: "#/components/schemas/userRequest"
-                vote:
-                  $ref: "#/components/schemas/voteBoxBase"
+              $ref: "#/components/schemas/stakeRequest"
       responses:
         "200":
-          description: Successful Response
+          description: Successful response
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/unsignedTransaction"
-  /dao/{daoId}/vote/delete:
+        "400":
+          $ref: "#/components/responses/badRequestTxBuild"
+  /stake/{daoKey}:
+    get:
+      tags:
+        - staking
+      operationId: getDaoStake
+      summary: Get a DAO's aggregate staking state
+      parameters:
+        - $ref: "#/components/parameters/daoKey"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/daoStakeInfo"
+        "400":
+          $ref: "#/components/responses/badRequestText"
+  /stake/{daoKey}/{stakeKey}:
+    get:
+      tags:
+        - staking
+      operationId: getStake
+      summary: Get a single stake record
+      parameters:
+        - $ref: "#/components/parameters/daoKey"
+        - $ref: "#/components/parameters/stakeKey"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/stakeInfo"
+        "404":
+          description: No stake found for stakeKey
+        "400":
+          $ref: "#/components/responses/badRequestText"
+  /stake/{daoKey}/stakes:
     post:
       tags:
-        - vote
-      operationId: deleteVoteBox
+        - staking
+      operationId: getStakes
+      summary: Look up stake records for a set of candidate stake keys
+      description: >-
+        Keys in potentialKeys that are not valid stake keys, or that have no
+        matching stake record, are silently dropped from the response.
       parameters:
-        - name: daoId
-          in: path
-          description: ID of dao to return
-          required: true
-          schema:
-            type: string
-            minLength: 64
-            maxLength: 64
+        - $ref: "#/components/parameters/daoKey"
       requestBody:
+        required: true
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                userRequest:
-                  $ref: "#/components/schemas/userRequest"
-                vote:
-                  $ref: "#/components/schemas/voteBox"
+              $ref: "#/components/schemas/getStakesRequest"
       responses:
         "200":
-          description: Successful Response
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/stakeInfo"
+        "400":
+          $ref: "#/components/responses/badRequestValidationOrText"
+  /stake/add:
+    post:
+      tags:
+        - staking
+      operationId: addStake
+      summary: Build a transaction to add funds to an existing stake
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/addStakeRequest"
+      responses:
+        "200":
+          description: Successful response
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/unsignedTransaction"
-  /dao/{daoId}/proposal:
+        "400":
+          $ref: "#/components/responses/badRequestTxBuild"
+  /stake/remove:
+    post:
+      tags:
+        - staking
+      operationId: unstake
+      summary: Build a transaction to withdraw (all or part of) a stake
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/unstakeRequest"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/unsignedTransaction"
+        "400":
+          $ref: "#/components/responses/badRequestTxBuild"
+  /proposal:
     post:
       tags:
         - proposal
       operationId: createProposal
-      parameters:
-        - name: daoId
-          in: path
-          description: ID of dao to return
-          required: true
-          schema:
-            type: string
-            minLength: 64
-            maxLength: 64
+      summary: Build a transaction to create a new proposal
       requestBody:
+        required: true
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                userRequest:
-                  $ref: "#/components/schemas/userRequest"
-                vote:
-                  $ref: "#/components/schemas/proposalBase"
+              $ref: "#/components/schemas/createProposalRequest"
       responses:
         "200":
-          description: Successful Response
+          description: Successful response
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/unsignedTransaction"
-  /dao/{daoId}/proposal/list:
-    get:
+        "400":
+          $ref: "#/components/responses/badRequestTxBuild"
+  /proposal/vote:
+    post:
       tags:
         - proposal
-      operationId: listProposals
-      parameters:
-        - name: daoId
-          in: path
-          description: ID of dao to return
-          required: true
-          schema:
-            type: string
-            minLength: 64
-            maxLength: 64
+      operationId: castVote
+      summary: Build a transaction to cast (or change) a vote on a proposal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/castVoteRequest"
       responses:
         "200":
-          description: Successful Response
+          description: Successful response
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/proposal"
-  /dao/{daoId}/proposal/{proposalId}:
+                $ref: "#/components/schemas/unsignedTransaction"
+        "400":
+          $ref: "#/components/responses/badRequestTxBuild"
+  /proposal/{daoKey}/{index}:
     get:
       tags:
         - proposal
       operationId: getProposal
+      summary: Get a single proposal by index
       parameters:
-        - name: daoId
+        - $ref: "#/components/parameters/daoKey"
+        - name: index
           in: path
-          description: ID of dao to return
-          required: true
-          schema:
-            type: string
-            minLength: 64
-            maxLength: 64
-        - name: proposalId
-          in: path
-          description: ID of proposal to fetch
+          description: Proposal index within the DAO
           required: true
           schema:
             type: integer
       responses:
         "200":
-          description: Successful Response
+          description: Successful response
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/proposal"
-  /dao/{daoId}/proposal/vote:
+        "400":
+          $ref: "#/components/responses/badRequestText"
+  /util/contractSignature:
     post:
       tags:
-        - proposal
-      operationId: voteProposal
-      parameters:
-        - name: daoId
-          in: path
-          description: ID of dao to return
-          required: true
-          schema:
-            type: string
-            minLength: 64
-            maxLength: 64
+        - util
+      operationId: getContractSignature
+      summary: Resolve a known contract's signature/address/ergotree
+      description: >-
+        Look up by contractHash or contractAddress against already
+        instantiated contracts, or instantiate a new instance by
+        contractClass + contractVersion + contractDaoKey.
       requestBody:
+        required: true
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                userRequest:
-                  $ref: "#/components/schemas/userRequest"
-                vote:
-                  $ref: "#/components/schemas/vote"
+              $ref: "#/components/schemas/getContractSignatureRequest"
       responses:
         "200":
-          description: Successful Response
+          description: Successful response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/unsignedTransaction"
-  /dao/{daoId}/votes:
-    post:
-      tags:
-        - vote
-      operationId: getVotes
-      parameters:
-        - name: daoId
-          in: path
-          description: ID of dao to return
-          required: true
-          schema:
-            type: string
-            minLength: 64
-            maxLength: 64
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: array
-              items:
-                type: string
-                minLength: 64
-                maxLength: 64
-      responses:
-        "200":
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/vote"
+                $ref: "#/components/schemas/contractSigModel"
+        "400":
+          $ref: "#/components/responses/badRequestValidationOrText"
 components:
+  parameters:
+    daoKey:
+      name: daoKey
+      in: path
+      description: Token id identifying the DAO
+      required: true
+      schema:
+        type: string
+    stakeKey:
+      name: stakeKey
+      in: path
+      description: Token id of the stake/vote key
+      required: true
+      schema:
+        type: string
+  responses:
+    badRequestText:
+      description: >-
+        Request failed (includes "Paideia state is currently syncing, try
+        again some time later." while the sync task is still catching up).
+      content:
+        text/plain:
+          schema:
+            type: string
+    badRequestTxBuild:
+      description: >-
+        Request body failed JSON validation, or transaction building failed
+        (insufficient funds/tokens for the sender, no viable change box, or
+        another server-side error, including "Paideia state is currently
+        syncing, try again some time later." while still catching up).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/validationError"
+        text/plain:
+          schema:
+            type: string
+            example: Not enough erg in wallet for staking
+    badRequestValidationOrText:
+      description: >-
+        Request body failed JSON validation, or the lookup itself failed
+        (including "Paideia state is currently syncing, try again some time
+        later." while still catching up).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/validationError"
+        text/plain:
+          schema:
+            type: string
   schemas:
-    vote:
+    validationError:
+      type: object
+      description: >-
+        Play JSON's JsError.toJson shape: JSON-path keys mapping to arrays
+        of {msg, args} validation failures.
+      additionalProperties: true
+      example:
+        obj.daoKey:
+          - msg:
+              - error.path.missing
+            args: []
+    syncStatus:
       type: object
       properties:
-        voteKey:
-          type: string
-          minLength: 64
-          maxLength: 64
-        proposalId:
+        syncing:
+          type: boolean
+        currentHeight:
           type: integer
-        votes:
-          type: array
-          items:
-            type: integer
-    proposalBase:
-      type: object
-      properties:
-        proposalType:
-          type: string
-          enum:
-            - basic
-            - quatitative
-        actions:
-          type: array
-          items:
-            type: array
-            items:
-              type: array
-              items:
-                $ref: "#/components/schemas/action"
-    proposal:
+        nodeHeight:
+          type: integer
+        lag:
+          type: integer
+          description: nodeHeight - currentHeight, or -1 if nodeHeight is not yet known
+    healthResponse:
       allOf:
-        - $ref: "#/components/schemas/proposalBase"
         - type: object
           properties:
-            proposalIndex:
-              type: integer
-            passed:
+            status:
               type: string
               enum:
-                - pending
-                - failed
-                - passed
-            endTime:
+                - ok
+        - $ref: "#/components/schemas/syncStatus"
+        - type: object
+          properties:
+            restoredFromCheckpoint:
+              type: boolean
+              description: >-
+                Whether startup resumed from a persisted checkpoint instead
+                of a full archive replay
+            checkpointHeight:
               type: integer
-            votes:
-              type: object
-              properties:
-                total:
-                  type: integer
-                currentTally:
-                  type: array
-                  items:
-                    type: integer
-    configValue:
+    readyResponse:
+      allOf:
+        - type: object
+          properties:
+            status:
+              type: string
+              enum:
+                - ready
+                - syncing
+        - $ref: "#/components/schemas/syncStatus"
+    daoSummaryTuple:
+      type: array
+      description: Tuple [name, boxCreationHeight, boxId] serialized as a JSON array.
+      minItems: 3
+      maxItems: 3
+      items: {}
+      example:
+        - My first DAO
+        - 1234567
+        - a1b2c3d4e5f6...boxId
+    daoConfigEntry:
       type: object
       properties:
         key:
           type: string
-        value:
-          type: string
+          description: Known DAO config key name, or "Unknown key"/"Unknown Key" if unrecognized
         valueType:
           type: string
-          enum:
-            - long
-            - string
-            - boolean
-            - contractSignature
-            - custom
-    actionChangeConfig:
-      type: object
-      properties:
-        actionType:
+          description: >-
+            Decoded value's type tag, e.g. "Byte", "Short", "Int", "Long",
+            "BigInt", "Boolean", "String", "ContractSignature", or a
+            composite like "(Byte,Long)" / "[Long]"
+        value:
           type: string
-          enum:
-            - actionChangeConfig
-        changedConfigValues:
-          type: array
-          items:
-            $ref: "#/components/schemas/configValue"
-    actionSendFunds:
-      type: object
-      properties:
-        actionType:
-          type: string
-          enum:
-            - actionSendFunds
-        outputRequests:
-          type: array
-          items:
-            $ref: "#/components/schemas/outputBox"
-    action:
+          description: Decoded value, rendered as a string
+    treasuryHealthResponse:
       oneOf:
-        - $ref: "#/components/schemas/actionChangeConfig"
-        - $ref: "#/components/schemas/actionSendFunds"
-    userRequest:
-      type: object
-      properties:
-        txType:
-          type: string
-          enum:
-            - eip12
-            - reduced
-        userAddresses:
-          type: array
-          items:
-            $ref: "#/components/schemas/address"
-    voteBoxBase:
-      type: object
-      properties:
-        stakeKey:
-          type: string
-          minLength: 64
-          maxLength: 64
-    voteBox:
-      allOf:
-        - $ref: "#/components/schemas/voteBoxBase"
         - type: object
           properties:
-            voteKey:
+            status:
               type: string
-              minLength: 64
-              maxLength: 64
+              enum:
+                - ok
+        - type: object
+          properties:
+            status:
+              type: string
+              enum:
+                - short
+            missingNanoErgs:
+              type: integer
+              format: int64
+              nullable: true
+              description: needed - found nanoERG, never negative
+            missingTokens:
+              type: object
+              additionalProperties:
+                type: integer
+                format: int64
+              description: tokenId -> needed - found amount, never negative
+            height:
+              type: integer
+              description: Sync height at which this shortfall was last observed
+    proposalSummary:
+      type: object
+      properties:
+        proposalIndex:
+          type: integer
+        proposalName:
+          type: string
+        proposalHeight:
+          type: integer
+          description: Creation height of the proposal's on-chain box
+        proposalBoxId:
+          type: string
     address:
       type: string
       example: 9h7L7sUHZk43VQC3PHtSp5ujAWcZtYmWATBH746wi75C5XHi68b
-    stakeBase:
+    mToken:
       type: object
       properties:
-        staked:
-          type: integer
-    stake:
-      allOf:
-        - type: object
-          properties:
-            stakeKey:
-              type: string
-            voteKey:
-              type: string
-            profit:
-              type: array
-              items:
-                $ref: "#/components/schemas/tokenAmount"
-        - $ref: "#/components/schemas/stakeBase"
-    stakingStatus:
-      type: object
-      properties:
-        stakerCount:
-          type: integer
-        totalStaked:
-          type: integer
-        currentStakePoolSize:
-          type: integer
-        nextCycle:
-          type: integer
-        stakingConfig:
-          $ref: "#/components/schemas/stakingConfig"
-        profit:
-          type: array
-          items:
-            $ref: "#/components/schemas/tokenAmount"
-    unsignedTransaction:
-      oneOf:
-        - type: object
-          properties:
-            inputs:
-              type: array
-              items:
-                $ref: "#/components/schemas/unsignedInput"
-            dataInputs:
-              type: array
-              items:
-                $ref: "#/components/schemas/dataInput"
-            outputs:
-              type: array
-              items:
-                $ref: "#/components/schemas/outputBox"
-        - type: object
-          properties:
-            transaction:
-              type: string
-    unsignedInput:
-      allOf:
-        - type: object
-          properties:
-            extension:
-              $ref: "#/components/schemas/contextExtension"
-            transactionId:
-              type: string
-              minLength: 64
-              maxLength: 64
-            index:
-              type: integer
-    dataInput:
-      type: object
-      properties:
-        boxId:
+        tokenId:
           type: string
-          minLength: 64
-          maxLength: 64
+        amount:
+          type: string
+          description: Token amount, rendered as a string
     contextExtension:
-      oneOf:
-        - type: object
-        - type: object
-          properties:
-            values:
-              type: object
-              additionalProperties:
-                type: string
+      type: object
+      description: Context extension values keyed by their numeric register index (as a string)
+      additionalProperties:
+        type: string
+        description: Hex-encoded serialized ErgoValue
     additionalRegisters:
       type: object
       additionalProperties:
         type: string
       example:
         R4: "0e349568322134"
-    tokenAmount:
+    mInput:
       type: object
       properties:
-        tokenId:
+        extension:
+          $ref: "#/components/schemas/contextExtension"
+        boxId:
           type: string
-          minLength: 64
-          maxLength: 64
-        amount:
-          type: integer
-          minimum: 1
-    outputBox:
-      type: object
-      properties:
         value:
-          type: integer
-          minimum: 1
+          type: string
+          description: Box value in nanoERG, rendered as a string
         ergoTree:
           type: string
+          description: Hex-encoded ErgoTree
         assets:
           type: array
           items:
-            $ref: "#/components/schemas/tokenAmount"
+            $ref: "#/components/schemas/mToken"
         additionalRegisters:
           $ref: "#/components/schemas/additionalRegisters"
         creationHeight:
           type: integer
-          minimum: 0
-    daoBase:
+        transactionId:
+          type: string
+        index:
+          type: integer
+          description: Output index within its transaction
+    mOutput:
       type: object
       properties:
-        name:
+        value:
           type: string
-          example: "My first DAO"
-        governanceTokenId:
+          description: Box value in nanoERG, rendered as a string
+        ergoTree:
           type: string
-          minLength: 64
-          maxLength: 64
-          example: c63f9ee12e4cbd7489c7637208fc5bcf39074d49a3097490a100eac5a30c6ca0
-        governanceType:
+          description: Hex-encoded ErgoTree
+        assets:
+          type: array
+          items:
+            $ref: "#/components/schemas/mToken"
+        additionalRegisters:
+          $ref: "#/components/schemas/additionalRegisters"
+        creationHeight:
+          type: integer
+    unsignedTransaction:
+      type: object
+      properties:
+        inputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/mInput"
+        dataInputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/mInput"
+        outputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/mOutput"
+    stakeRecord:
+      type: object
+      properties:
+        stake:
+          type: integer
+          format: int64
+        lockedUntil:
+          type: integer
+          format: int64
+        rewards:
+          type: array
+          items:
+            type: integer
+            format: int64
+    participationRecord:
+      type: object
+      properties:
+        voted:
+          type: integer
+          format: int64
+        votedTotal:
+          type: integer
+          format: int64
+    stakeInfo:
+      type: object
+      properties:
+        stakeKey:
           type: string
-          example: basic
-          enum:
-            - basic
-            - optimistic
-        supportedProposalTypes:
+        stakeRecord:
+          $ref: "#/components/schemas/stakeRecord"
+        participationRecord:
+          $ref: "#/components/schemas/participationRecord"
+          nullable: true
+    daoStakeInfo:
+      type: object
+      properties:
+        totalStaked:
+          type: integer
+          format: int64
+        stakers:
+          type: integer
+          format: int64
+        profit:
+          type: array
+          items:
+            type: integer
+            format: int64
+        voted:
+          type: integer
+          format: int64
+        votedTotal:
+          type: integer
+          format: int64
+        nextEmission:
+          type: integer
+          format: int64
+        emission:
+          type: integer
+          format: int64
+        cycleLength:
+          type: integer
+          format: int64
+    tokenAmountTuple:
+      type: array
+      description: Tuple [tokenId, amount] serialized as a JSON array.
+      minItems: 2
+      maxItems: 2
+      items: {}
+      example:
+        - a1b2c3d4e5f6...tokenId
+        - 100
+    sendFundsActionOutput:
+      type: object
+      properties:
+        address:
+          type: string
+        nergs:
+          type: integer
+          format: int64
+        tokens:
+          type: array
+          items:
+            $ref: "#/components/schemas/tokenAmountTuple"
+        registers:
           type: array
           items:
             type: string
-            enum:
-              - basic
-              - quantitative
-        quorum:
-          type: number
-          format: float
-          minimum: 0
-          maximum: 100
-          multipleOf: 0.1
-          example: 33.3
-        stakingConfig:
-          $ref: "#/components/schemas/stakingConfig"
-    stakingConfig:
+          description: >-
+            Hex-encoded serialized ErgoValues. Always empty on responses
+            derived from proposal action boxes (getProposal).
+    sendFundsAction:
       type: object
       properties:
-        stakePoolSize:
+        activationTime:
           type: integer
-          minimum: 0
-          example: 1000000
-        stakePoolEmission:
+          format: int64
+        optionId:
           type: integer
-          minimum: 0
-          example: 1000
-        cycleLength:
+        outputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/sendFundsActionOutput"
+    updateConfigAction:
+      type: object
+      properties:
+        optionId:
           type: integer
-          minimum: 0
-          description: Stake cycle length in ms
-          example: 604800000
-        rewardDelay:
+        activationTime:
           type: integer
-          minimum: 0
-          maximum: 10
-          description: Number of cycles that pass before a stake is rewarded
-          example: 2
-        profitSharePct:
-          type: number
-          format: float
-          multipleOf: 0.1
-          minimum: 0
-          maximum: 100
-          example: 50
-    dao:
-      allOf:
+          format: int64
+        remove:
+          type: array
+          items:
+            type: string
+        update:
+          type: array
+          items:
+            $ref: "#/components/schemas/daoConfigEntry"
+        insert:
+          type: array
+          items:
+            $ref: "#/components/schemas/daoConfigEntry"
+    action:
+      description: >-
+        Discriminated union written as {"actionType": ..., "action": ...}.
+      oneOf:
         - type: object
           properties:
-            id:
+            actionType:
               type: string
-              minLength: 64
-              maxLength: 64
-              example: 7f55cfa342cf25da85c83a0c3420491f5b4de12ea6ba0cb49247a306fae6e3ff
-        - $ref: "#/components/schemas/daoBase"
+              enum:
+                - SendFundsAction
+            action:
+              $ref: "#/components/schemas/sendFundsAction"
+        - type: object
+          properties:
+            actionType:
+              type: string
+              enum:
+                - UpdateConfigAction
+            action:
+              $ref: "#/components/schemas/updateConfigAction"
+      discriminator:
+        propertyName: actionType
+        mapping:
+          SendFundsAction: "#/components/schemas/sendFundsAction"
+          UpdateConfigAction: "#/components/schemas/updateConfigAction"
+    proposalVote:
+      type: object
+      properties:
+        stakeKey:
+          type: string
+        vote:
+          type: array
+          items:
+            type: integer
+            format: int64
+    proposalBasic:
+      type: object
+      properties:
+        proposalIndex:
+          type: integer
+        name:
+          type: string
+        endTime:
+          type: integer
+          format: int64
+        passed:
+          type: integer
+          description: 0 = pending, otherwise a passed/failed status code
+        actions:
+          type: array
+          items:
+            $ref: "#/components/schemas/action"
+        votes:
+          type: array
+          items:
+            type: integer
+            format: int64
+        box_height:
+          type: integer
+          format: int64
+        individual_votes:
+          type: array
+          items:
+            $ref: "#/components/schemas/proposalVote"
+        box_id:
+          type: string
+    proposal:
+      description: >-
+        Discriminated union written as {"proposalType": ..., "proposal": ...}.
+        Only "ProposalBasic" is currently supported by the deserializer.
+      type: object
+      properties:
+        proposalType:
+          type: string
+          enum:
+            - ProposalBasic
+        proposal:
+          $ref: "#/components/schemas/proposalBasic"
+    bootstrapRequest:
+      type: object
+      required:
+        - stakepoolSize
+        - userAddresses
+      properties:
+        stakepoolSize:
+          type: integer
+          format: int64
+        userAddresses:
+          type: array
+          items:
+            $ref: "#/components/schemas/address"
+    createDAORequest:
+      type: object
+      required:
+        - name
+        - url
+        - logo
+        - description
+        - minProposalTime
+        - banner
+        - bannerEnabled
+        - footer
+        - footerEnabled
+        - theme
+        - daoGovernanceTokenId
+        - stakePoolSize
+        - governanceType
+        - quorum
+        - threshold
+        - stakingEmissionAmount
+        - stakingEmissionDelay
+        - stakingCycleLength
+        - stakingProfitSharePct
+        - userAddresses
+        - pureParticipationWeight
+        - participationWeight
+      properties:
+        name:
+          type: string
+        url:
+          type: string
+        logo:
+          type: string
+        description:
+          type: string
+        minProposalTime:
+          type: integer
+          format: int64
+        banner:
+          type: string
+        bannerEnabled:
+          type: boolean
+        footer:
+          type: string
+        footerEnabled:
+          type: boolean
+        theme:
+          type: string
+        daoGovernanceTokenId:
+          type: string
+        stakePoolSize:
+          type: integer
+          format: int64
+          description: >-
+            Deserialized from the request but not currently forwarded to the
+            DAO-creation transaction (the controller always uses 0 for the
+            box's stake pool size field); still required on the wire.
+        governanceType:
+          type: string
+          enum:
+            - OPTIMISTIC
+            - DEFAULT
+        quorum:
+          type: integer
+          format: int64
+        threshold:
+          type: integer
+          format: int64
+        stakingEmissionAmount:
+          type: integer
+          format: int64
+        stakingEmissionDelay:
+          type: integer
+          description: Byte value (0-255)
+        stakingCycleLength:
+          type: integer
+          format: int64
+        stakingProfitSharePct:
+          type: integer
+          description: Byte value (0-255)
+        userAddresses:
+          type: array
+          items:
+            $ref: "#/components/schemas/address"
+          description: >-
+            userAddresses[0] is used as the DAO's initial governance/creator
+            address; the full list is used to fund the transaction.
+        pureParticipationWeight:
+          type: integer
+          description: Byte value (0-255)
+        participationWeight:
+          type: integer
+          description: Byte value (0-255)
+    stakeRequest:
+      type: object
+      required:
+        - daoKey
+        - userAddress
+        - stakeAmount
+        - userAddresses
+      properties:
+        daoKey:
+          type: string
+        userAddress:
+          $ref: "#/components/schemas/address"
+        stakeAmount:
+          type: integer
+          format: int64
+        userAddresses:
+          type: array
+          items:
+            $ref: "#/components/schemas/address"
+    addStakeRequest:
+      type: object
+      required:
+        - daoKey
+        - stakeKey
+        - userAddress
+        - addStakeAmount
+        - userAddresses
+      properties:
+        daoKey:
+          type: string
+        stakeKey:
+          type: string
+        userAddress:
+          $ref: "#/components/schemas/address"
+        addStakeAmount:
+          type: integer
+          format: int64
+        userAddresses:
+          type: array
+          items:
+            $ref: "#/components/schemas/address"
+    unstakeRequest:
+      type: object
+      required:
+        - daoKey
+        - stakeKey
+        - newStakeRecord
+        - userAddress
+        - userAddresses
+      properties:
+        daoKey:
+          type: string
+        stakeKey:
+          type: string
+        newStakeRecord:
+          $ref: "#/components/schemas/stakeRecord"
+          description: Target stake record after this transaction (a lower stake than the current one withdraws the difference)
+        userAddress:
+          $ref: "#/components/schemas/address"
+        userAddresses:
+          type: array
+          items:
+            $ref: "#/components/schemas/address"
+    getStakesRequest:
+      type: object
+      required:
+        - potentialKeys
+      properties:
+        potentialKeys:
+          type: array
+          items:
+            type: string
+          description: Candidate stake key token ids to resolve; unresolvable/unknown keys are dropped from the response
+    createSendFundsActionOutput:
+      type: object
+      required:
+        - address
+        - nergs
+        - tokens
+        - registers
+      properties:
+        address:
+          $ref: "#/components/schemas/address"
+        nergs:
+          type: integer
+          format: int64
+        tokens:
+          type: array
+          items:
+            $ref: "#/components/schemas/tokenAmountTuple"
+        registers:
+          type: array
+          items:
+            type: string
+          description: Hex-encoded serialized ErgoValues
+    createSendFundsActionRequest:
+      type: object
+      required:
+        - optionId
+        - repeats
+        - repeatDelay
+        - activationTime
+        - outputs
+      properties:
+        optionId:
+          type: integer
+        repeats:
+          type: integer
+        repeatDelay:
+          type: integer
+          format: int64
+        activationTime:
+          type: integer
+          format: int64
+        outputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/createSendFundsActionOutput"
+    createUpdateConfigActionRequest:
+      type: object
+      required:
+        - optionId
+        - activationTime
+        - remove
+        - update
+        - insert
+      properties:
+        optionId:
+          type: integer
+        activationTime:
+          type: integer
+          format: int64
+        remove:
+          type: array
+          items:
+            type: string
+          description: DAO config key names to remove
+        update:
+          type: array
+          items:
+            $ref: "#/components/schemas/daoConfigEntry"
+        insert:
+          type: array
+          items:
+            $ref: "#/components/schemas/daoConfigEntry"
+    createProposalRequest:
+      type: object
+      required:
+        - daoKey
+        - name
+        - voteKey
+        - userAddress
+        - userAddresses
+        - endTime
+        - sendFundsActions
+        - updateConfigActions
+      properties:
+        daoKey:
+          type: string
+        name:
+          type: string
+        voteKey:
+          type: string
+        userAddress:
+          $ref: "#/components/schemas/address"
+        userAddresses:
+          type: array
+          items:
+            $ref: "#/components/schemas/address"
+        endTime:
+          type: integer
+          format: int64
+        sendFundsActions:
+          type: array
+          items:
+            $ref: "#/components/schemas/createSendFundsActionRequest"
+        updateConfigActions:
+          type: array
+          items:
+            $ref: "#/components/schemas/createUpdateConfigActionRequest"
+    castVoteRequest:
+      type: object
+      required:
+        - daoKey
+        - stakeKey
+        - proposalIndex
+        - votes
+        - userAddress
+        - userAddresses
+      properties:
+        daoKey:
+          type: string
+        stakeKey:
+          type: string
+        proposalIndex:
+          type: integer
+        votes:
+          type: array
+          items:
+            type: integer
+            format: int64
+        userAddress:
+          $ref: "#/components/schemas/address"
+        userAddresses:
+          type: array
+          items:
+            $ref: "#/components/schemas/address"
+    getContractSignatureRequest:
+      type: object
+      description: >-
+        Either contractHash or contractAddress selects an existing contract
+        instance; contractClass (with contractVersion and contractDaoKey)
+        instantiates a new one.
+      properties:
+        contractHash:
+          type: array
+          nullable: true
+          items:
+            type: integer
+          description: Blake2b256 hash bytes (each 0-255)
+        contractAddress:
+          type: string
+          nullable: true
+        contractClass:
+          type: string
+          nullable: true
+        contractDaoKey:
+          type: string
+          nullable: true
+        contractVersion:
+          type: string
+          nullable: true
+    contractSigModel:
+      type: object
+      properties:
+        className:
+          type: string
+        daoKey:
+          type: string
+        version:
+          type: string
+        hash:
+          type: string
+          description: Hex-encoded Blake2b256 contract hash
+        address:
+          type: string
+          description: Ergo address of the contract
+        ergotreeBytes:
+          type: string
+          description: Hex-encoded ErgoTree bytes
