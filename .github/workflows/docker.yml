@@ -29,8 +29,7 @@ on:
 
 env:
   IMAGE: ghcr.io/paideiadao/paideia-state
-  # TODO before merge: re-pin at the sdk dev merge commit of paideia-sdk PR #294
-  SDK_REF: 8737762586a22a8c2b75925afbecd03a3e466c24
+  SDK_REF: c2a764f631fd1140f8768e500d24bd3d9ede9a26
 
 jobs:
   build:
